@@ -4,7 +4,7 @@ A modern desktop application for managing your Hostinger VPS infrastructure. Bui
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyQt6](https://img.shields.io/badge/PyQt6-6.6+-green.svg)
-![License](https://img.shields.io/badge/License-MIT-yellow.svg)
+![License](https://img.shields.io/badge/License-GPLv3-blue.svg)
 [![Codacy Badge](https://app.codacy.com/project/badge/Grade/611ccc2792124c4481b588dd7faea6fd)](https://app.codacy.com/gh/amosgeva/HostingerVPSManager/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade)
 
 ## Features
@@ -145,7 +145,7 @@ See `requirements.txt`:
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
 
 ## Acknowledgments
 
