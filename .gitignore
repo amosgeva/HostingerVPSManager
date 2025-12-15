@@ -116,3 +116,7 @@ token.txt
 # Export files (user data)
 *_export_*.csv
 
+
+
+#Ignore vscode AI rules
+.github\instructions\codacy.instructions.md
