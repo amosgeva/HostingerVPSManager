@@ -5,27 +5,32 @@ A modern desktop application for managing your Hostinger VPS infrastructure. Bui
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyQt6](https://img.shields.io/badge/PyQt6-6.6+-green.svg)
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
+[![Codacy Badge](https://app.codacy.com/project/badge/Grade/611ccc2792124c4481b588dd7faea6fd)](https://app.codacy.com/gh/amosgeva/HostingerVPSManager/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade)
 
 ## Features
 
 ### Server Management
+
 - **Multi-Account Support**: Manage multiple Hostinger accounts from a single interface
 - **Server Overview**: View all your VPS instances with real-time status
 - **Power Controls**: Start, stop, restart, and force restart servers
 - **Server Information**: View detailed server specs (CPU, RAM, Disk, Bandwidth)
 
 ### Monitoring
+
 - **Real-time Metrics**: CPU usage, RAM usage, and disk utilization with visual charts
 - **Uptime Tracking**: Monitor server uptime
 - **Auto-refresh**: Configurable automatic data refresh (10-300 seconds)
 
 ### Security
+
 - **Firewall Management**: View, add, edit, and delete firewall rules
 - **SSH Key Management**: Manage SSH keys for secure server access
 - **Malware Scanner (Monarx)**: Monitor malware scan status and metrics
 - **Secure Credential Storage**: API tokens stored securely using Windows Credential Manager
 
 ### Additional Features
+
 - **System Tray Integration**: Minimize to tray, notifications for status changes
 - **Data Export**: Export logs and metrics to CSV format
 - **Subscription Info**: View billing and subscription details
@@ -35,10 +40,12 @@ A modern desktop application for managing your Hostinger VPS infrastructure. Bui
 ## Installation
 
 ### Prerequisites
+
 - Python 3.10 or higher
 - Windows 10/11 (for Windows Credential Manager support)
 
 ### From Source
+
 ```bash
 # Clone the repository
 git clone https://github.com/yourusername/hostinger-vps-manager.git
@@ -52,15 +59,18 @@ python run.py
 ```
 
 ### Build Executable
+
 ```bash
 # Build standalone executable
 pyinstaller HostingerVPSManager.spec --clean
 ```
+
 The executable will be created at `dist/HostingerVPSManager.exe`
 
 ## Configuration
 
 ### API Token Setup
+
 1. Log in to your [Hostinger Dashboard](https://hpanel.hostinger.com/)
 2. Navigate to Account Settings → API Tokens
 3. Generate a new API token with VPS permissions
@@ -68,13 +78,16 @@ The executable will be created at `dist/HostingerVPSManager.exe`
 5. Enter a name and paste your API token
 
 ### Settings
+
 Access settings via the ⚙ Settings button:
+
 - **Auto-refresh interval**: How often to refresh data (default: 30s)
 - **Minimize to tray on close**: Keep app running in system tray
 - **Start minimized**: Launch app minimized to tray
 - **Enable notifications**: Show alerts for server status changes
 
 ## Project Structure
+
 ```
 Hostinger.API/
 ├── assets/                 # Application icons
@@ -103,6 +116,7 @@ Hostinger.API/
 ## API Reference
 
 This application uses the [Hostinger API](https://developers.hostinger.com/). Supported endpoints:
+
 - VPS Virtual Machines
 - VPS Firewall
 - VPS SSH Keys (Public Keys)
@@ -113,6 +127,7 @@ This application uses the [Hostinger API](https://developers.hostinger.com/). Su
 ## Requirements
 
 See `requirements.txt`:
+
 - PyQt6 >= 6.6.0
 - requests >= 2.31.0
 - keyring >= 24.3.0
@@ -137,4 +152,3 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - [Hostinger](https://www.hostinger.com/) for their VPS API
 - [PyQt6](https://www.riverbankcomputing.com/software/pyqt/) for the GUI framework
 - [Keyring](https://github.com/jaraco/keyring) for secure credential storage
-
