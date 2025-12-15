@@ -1192,8 +1192,8 @@ class MainWindow(QMainWindow):
                 response = requests.get("https://api.ipify.org?format=json", timeout=5)
                 if response.status_code == 200:
                     return response.json().get("ip", "--")
-            except Exception:
-                pass
+            except Exception as e:  # noqa: B110
+                logger.debug("Failed to get public IP: %s", e)
             return "--"
 
         worker = APIWorker(get_public_ip)

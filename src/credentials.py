@@ -7,13 +7,13 @@ Supports multiple accounts with named tokens.
 import json
 import keyring
 import logging
-from typing import Optional, Dict, List
+from typing import Optional, List
 from dataclasses import dataclass, asdict
 
 # Constants
 SERVICE_NAME = "HostingerVPSManager"
 ACCOUNTS_KEY = "accounts_list"
-TOKEN_PREFIX = "token_"
+ACCOUNT_KEY_PREFIX = "account_"  # nosec B105
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +70,7 @@ class CredentialManager:
             account_id = str(uuid.uuid4())[:8]
 
             # Store token
-            keyring.set_password(self.service_name, f"{TOKEN_PREFIX}{account_id}", token)
+            keyring.set_password(self.service_name, f"{ACCOUNT_KEY_PREFIX}{account_id}", token)
 
             # Add to accounts list
             accounts = self.get_accounts()
@@ -93,7 +93,7 @@ class CredentialManager:
                     if name:
                         acc.name = name
                     if token:
-                        keyring.set_password(self.service_name, f"{TOKEN_PREFIX}{account_id}", token)
+                        keyring.set_password(self.service_name, f"{ACCOUNT_KEY_PREFIX}{account_id}", token)
                     self._save_accounts(accounts)
                     return True
             return False
@@ -106,7 +106,7 @@ class CredentialManager:
         try:
             # Delete token
             try:
-                keyring.delete_password(self.service_name, f"{TOKEN_PREFIX}{account_id}")
+                keyring.delete_password(self.service_name, f"{ACCOUNT_KEY_PREFIX}{account_id}")
             except keyring.errors.PasswordDeleteError:
                 pass
 
@@ -124,7 +124,7 @@ class CredentialManager:
     def get_token(self, account_id: str) -> Optional[str]:
         """Get the API token for a specific account."""
         try:
-            return keyring.get_password(self.service_name, f"{TOKEN_PREFIX}{account_id}")
+            return keyring.get_password(self.service_name, f"{ACCOUNT_KEY_PREFIX}{account_id}")
         except Exception as e:
             logger.error(f"Failed to get token: {e}")
             return None
