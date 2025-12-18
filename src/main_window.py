@@ -646,6 +646,37 @@ class MainWindow(QMainWindow):
         self.tray_icon.hide()
         QApplication.quit()
 
+    def copy_to_clipboard(self, text: str, label_name: str = "IP"):
+        """Copy text to clipboard and show brief notification."""
+        if text and text != "--":
+            clipboard = QApplication.clipboard()
+            clipboard.setText(text)
+            self.show_tray_notification("Copied", f"{label_name} copied to clipboard: {text}")
+
+    def create_copy_button(self, get_text_func, label_name: str = "IP") -> QPushButton:
+        """Create a small copy button that copies text to clipboard."""
+        copy_btn = QPushButton("📋")
+        copy_btn.setToolTip(f"Copy {label_name} to clipboard")
+        copy_btn.setFixedSize(24, 24)
+        copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        copy_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                border: none;
+                font-size: 14px;
+                padding: 0px;
+            }
+            QPushButton:hover {
+                background-color: #0f3460;
+                border-radius: 4px;
+            }
+            QPushButton:pressed {
+                background-color: #00d4ff;
+            }
+        """)
+        copy_btn.clicked.connect(lambda: self.copy_to_clipboard(get_text_func(), label_name))
+        return copy_btn
+
     def show_tray_notification(self, title: str, message: str):
         """Show a system tray notification."""
         if hasattr(self, 'tray_icon') and self.tray_icon.isVisible():
@@ -730,6 +761,9 @@ class MainWindow(QMainWindow):
 
         self.ip_label = QLabel("IP: --")
         status_layout.addWidget(self.ip_label)
+
+        self.vps_ip_copy_btn = self.create_copy_button(self.get_current_vps_ip, "VPS IP")
+        status_layout.addWidget(self.vps_ip_copy_btn)
 
         self.plan_label = QLabel("Plan: --")
         status_layout.addWidget(self.plan_label)
@@ -1146,12 +1180,18 @@ class MainWindow(QMainWindow):
         self.public_ip_label.setStyleSheet(INFO_LABEL_STYLE)
         info_layout.addWidget(self.public_ip_label)
 
+        self.public_ip_copy_btn = self.create_copy_button(self.get_public_ip_text, "Public IP")
+        info_layout.addWidget(self.public_ip_copy_btn)
+
         info_layout.addWidget(QLabel("|"))
 
         # Private IP
         self.private_ip_label = QLabel("Private IP: --")
         self.private_ip_label.setStyleSheet(INFO_LABEL_STYLE)
         info_layout.addWidget(self.private_ip_label)
+
+        self.private_ip_copy_btn = self.create_copy_button(self.get_private_ip_text, "Private IP")
+        info_layout.addWidget(self.private_ip_copy_btn)
 
         info_layout.addStretch()
 
@@ -1201,6 +1241,21 @@ class MainWindow(QMainWindow):
         worker.error.connect(lambda e: self.public_ip_label.setText("Public IP: --"))
         self.workers.append(worker)
         worker.start()
+
+    def get_current_vps_ip(self) -> str:
+        """Get the current VPS IP address from the label."""
+        text = self.ip_label.text()
+        return text.replace("IP: ", "") if text else "--"
+
+    def get_public_ip_text(self) -> str:
+        """Get the public IP address from the label."""
+        text = self.public_ip_label.text()
+        return text.replace("Public IP: ", "") if text else "--"
+
+    def get_private_ip_text(self) -> str:
+        """Get the private IP address from the label."""
+        text = self.private_ip_label.text()
+        return text.replace("Private IP: ", "") if text else "--"
 
     def get_ethernet_ip(self) -> str:
         """Get the IP address from Ethernet adapter, excluding VPN/Tailscale adapters."""
