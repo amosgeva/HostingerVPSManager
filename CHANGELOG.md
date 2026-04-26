@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.2] — About dialog (2026-04-26)
+
+### Added
+
+- `src/ui/dialogs/about.py` — modal "About" dialog with the app icon,
+  current version (sourced from `src.__version__`), one-line
+  description, license (GPLv3) + author, clickable links to the
+  GitHub repo / issue tracker / Hostinger API docs, and a small
+  environment line (`Python <ver> · <OS> <release> · <arch>`)
+  that's handy to copy into a bug report.
+- `ℹ About` button in the main window header next to `⚙ Settings`,
+  plus an `About...` entry in the system-tray context menu (between
+  "Refresh Data" and "Quit") for discoverability when the window is
+  hidden.
+
 ## [1.3.1] — WorkerPool race fix (2026-04-26)
 
 ### Fixed
