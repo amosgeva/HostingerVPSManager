@@ -1,5 +1,7 @@
 # Changelog
 
+<!-- markdownlint-disable MD024 -->
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
@@ -7,9 +9,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.2.0] — Cross-platform
+
+### Added
+
+- macOS `.app` bundle output from `HostingerVPSManager.spec` (single
+  unified spec; auto-detects platform).
+- `.github/workflows/release.yml` — tag-driven release workflow that
+  builds Windows / Linux / macOS artefacts on push of a `v*.*.*` tag and
+  publishes them to a GitHub Release.
+- Per-OS install instructions in `README.md`, including the Linux Qt
+  system dependencies and the macOS Gatekeeper first-launch caveat.
+- Keyring backend is now logged at startup (e.g. `Keyring backend:
+  WinVaultKeyring`) so users can confirm which OS store is in use.
+
+### Changed
+
+- `_find_best_ip` now skips interfaces reporting down via
+  `psutil.net_if_stats().isup`, and the exclude list covers macOS
+  (`utun`, `awdl`, `gif`, `stf`, `bridge`) and Linux (`tun`, `tap`,
+  `veth`, `br-`) virtual / VPN interfaces alongside the existing
+  Windows ones.
+- `quit_application` no longer assumes the tray icon exists.
+- `start_minimized` is honoured only when a system tray is actually
+  available; on tray-less systems the window is shown instead of
+  hidden-with-no-recovery.
+- `HostingerVPSManager.spec` only injects Windows-only hidden imports
+  (`keyring.backends.Windows`, `win32timezone`) on Windows. Icon
+  selection is OS-aware (`.ico` on Windows, `.png` everywhere else).
+- `credentials.py` docstring no longer claims Windows-only support; it
+  documents the per-OS keyring backend matrix.
+
 ## [1.1.0] — Foundations
 
 ### Added
+
 - `pyproject.toml` (PEP 621) with runtime + dev dependency sets; install with
   `pip install -e ".[dev]"`.
 - `src/app/constants.py` for centralised timing / URL / retry constants.
@@ -22,6 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `.github/workflows/ci.yml` running lint + build on Win/Linux/macOS.
 
 ### Changed
+
 - `pywin32` is now a Windows-only dependency in `pyproject.toml` and
   `requirements.txt`, so `pip install` works on Linux and macOS.
 - `get_data_center_by_id` and `get_subscription_by_id` use a lazy in-memory
@@ -30,6 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   hard-coded in `main.py`.
 
 ### Removed
+
 - Legacy duplicate `hostinger_vps_manager.spec` (used the deprecated
   `block_cipher` syntax and was superseded by `HostingerVPSManager.spec`).
 - Stale TypeScript/Node.js exclusions from `.codacy.yaml`.

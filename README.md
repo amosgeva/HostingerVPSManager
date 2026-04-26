@@ -42,30 +42,75 @@ A modern desktop application for managing your Hostinger VPS infrastructure. Bui
 ### Prerequisites
 
 - Python 3.10 or higher
-- Windows 10/11 (for Windows Credential Manager support)
+- One of: Windows 10/11, macOS 12+, or a modern Linux distribution
+
+Credentials are stored via the OS-native keyring:
+
+| OS      | Backend                                              |
+|---------|------------------------------------------------------|
+| Windows | Credential Manager                                   |
+| macOS   | Keychain                                             |
+| Linux   | Secret Service (GNOME Keyring / KWallet / libsecret) |
+
+On a headless Linux box without a running secret-service daemon, install
+[`keyrings.cryptfile`](https://pypi.org/project/keyrings.cryptfile/) for
+an encrypted-file fallback. The active backend is logged at startup so
+you can confirm what's in use.
 
 ### From Source
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/hostinger-vps-manager.git
-cd hostinger-vps-manager
+git clone https://github.com/amosgeva/HostingerVPSManager.git
+cd HostingerVPSManager
 
-# Install dependencies
-pip install -r requirements.txt
+# Create a virtual environment (recommended)
+python -m venv .venv
+# Windows:    .venv\Scripts\activate
+# Linux/Mac:  source .venv/bin/activate
+
+# Install (PEP 517 — uses pyproject.toml). Add [dev] for lint + test tools.
+pip install -e .
 
 # Run the application
 python run.py
 ```
 
-### Build Executable
+#### Linux: extra Qt system dependencies
+
+Qt6 needs a few X11/EGL libraries that aren't always installed on
+minimal distros. On Debian/Ubuntu:
 
 ```bash
-# Build standalone executable
-pyinstaller HostingerVPSManager.spec --clean
+sudo apt-get install -y libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 \
+  libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 \
+  libxcb-xinerama0 libxcb-xkb1 libxcb-cursor0 libegl1
 ```
 
-The executable will be created at `dist/HostingerVPSManager.exe`
+If you run a desktop environment without a system-tray daemon (vanilla
+GNOME, sway, etc.), the app falls back to "close = quit" — there's no
+tray icon to minimise to.
+
+### Build a standalone artefact
+
+```bash
+pyinstaller HostingerVPSManager.spec --clean --noconfirm
+```
+
+| OS      | Output                                                |
+|---------|-------------------------------------------------------|
+| Windows | `dist/HostingerVPSManager.exe`                        |
+| Linux   | `dist/HostingerVPSManager` (single-file binary)       |
+| macOS   | `dist/HostingerVPSManager.app` (proper `.app` bundle) |
+
+On macOS, the `.app` is unsigned; the first launch needs **right-click →
+Open** to bypass Gatekeeper. Code-signing is on the v2.x roadmap.
+
+### Releases
+
+Tagged releases (`v1.2.0`, etc.) are built by GitHub Actions on
+Windows + Linux + macOS runners and published to the
+[Releases page](https://github.com/amosgeva/HostingerVPSManager/releases).
 
 ## Configuration
 
@@ -109,9 +154,14 @@ Hostinger.API/
 
 ## Security
 
-- **No hardcoded credentials**: All API tokens are stored using Windows Credential Manager
-- **Secure transmission**: All API calls use HTTPS
-- **Local storage only**: No data is sent to third-party services
+- **No hardcoded credentials**: API tokens are stored via the OS-native
+  keyring (Windows Credential Manager, macOS Keychain, or Secret Service
+  on Linux). The app never writes tokens to disk in plaintext.
+- **Retry-safe HTTP**: All API calls use HTTPS via a `requests` session
+  with exponential-backoff retries that honour `Retry-After`.
+- **Local storage only**: No data is sent to third-party services.
+- **Reporting**: For security issues, email `amos@geva.solutions`
+  privately rather than opening a public issue.
 
 ## API Reference
 

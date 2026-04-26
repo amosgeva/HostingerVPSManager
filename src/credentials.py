@@ -1,7 +1,13 @@
 """
-Secure credential storage using Windows Credential Manager.
-Provides secure storage and retrieval of Hostinger API tokens.
-Supports multiple accounts with named tokens.
+Secure credential storage via the OS-native keyring.
+
+The `keyring` library auto-selects the appropriate backend per platform:
+Windows Credential Manager on Windows, Keychain on macOS, and Secret
+Service / libsecret (KWallet/GNOME Keyring) on Linux. Linux users
+without a running secret-service daemon can install
+`keyrings.cryptfile` for an encrypted file fallback.
+
+Supports multiple Hostinger accounts with named tokens.
 """
 
 import contextlib
@@ -17,6 +23,7 @@ ACCOUNTS_KEY = "accounts_list"
 ACCOUNT_KEY_PREFIX = "account_"  # nosec B105
 
 logger = logging.getLogger(__name__)
+logger.info("Keyring backend: %s", keyring.get_keyring().__class__.__name__)
 
 
 @dataclass
@@ -28,7 +35,7 @@ class Account:
 
 
 class CredentialManager:
-    """Manages secure storage of API credentials using Windows Credential Manager."""
+    """Manages secure storage of API credentials via the OS-native keyring."""
 
     def __init__(self):
         self.service_name = SERVICE_NAME

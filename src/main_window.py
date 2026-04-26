@@ -695,7 +695,8 @@ class MainWindow(QMainWindow):
 
     def quit_application(self):
         """Quit the application completely."""
-        self.tray_icon.hide()
+        if hasattr(self, "tray_icon"):
+            self.tray_icon.hide()
         QApplication.quit()
 
     def copy_to_clipboard(self, text: str, label_name: str = "IP"):
@@ -1325,13 +1326,23 @@ class MainWindow(QMainWindow):
         return text.replace("Private IP: ", "") if text else "--"
 
     def get_ethernet_ip(self) -> str:
-        """Get the IP address from Ethernet adapter, excluding VPN/Tailscale adapters."""
+        """Get the IP address of the primary physical network adapter.
+
+        Works across Windows, macOS, and Linux: prefers interfaces that look
+        like a physical NIC (en*/eth*/wlan*/...) over virtual ones
+        (utun*/awdl*/tun*/tap*/docker*/...). Down interfaces are skipped when
+        psutil.net_if_stats() is available.
+        """
         if not HAS_PSUTIL:
             return self._get_ip_via_socket()
 
         try:
             interfaces = psutil.net_if_addrs()
-            best_ip, fallback_ip = self._find_best_ip(interfaces)
+            try:
+                stats = psutil.net_if_stats()
+            except Exception:
+                stats = None
+            best_ip, fallback_ip = self._find_best_ip(interfaces, stats)
             return best_ip or fallback_ip or "--"
         except Exception:
             return "--"
@@ -1344,9 +1355,14 @@ class MainWindow(QMainWindow):
         except Exception:
             return "--"
 
-    def _find_best_ip(self, interfaces: dict) -> tuple:
+    def _find_best_ip(self, interfaces: dict, stats: dict | None = None) -> tuple:
         """Find the best IP from network interfaces."""
-        priority_keywords = ["ethernet", "eth", "local area connection", "realtek", "intel"]
+        # Substrings that suggest a physical NIC across all three OSes.
+        #   Linux:   eth*, enp*, eno*, ens*, wlan*, wlp*, wlo*
+        #   macOS:   en0 (Wi-Fi or first ethernet), en1, en2, ...
+        #   Windows: "Ethernet*", "Wi-Fi*", "Local Area Connection*"
+        priority_keywords = ["ethernet", "eth", "wi-fi", "wlan", "wl", "en"]
+        # Substrings that mark a virtual / transient / VPN interface.
         exclude_keywords = [
             "tailscale",
             "vpn",
@@ -1356,6 +1372,20 @@ class MainWindow(QMainWindow):
             "docker",
             "wsl",
             "loopback",
+            "vethernet",  # Windows Hyper-V / WSL
+            "tun",
+            "tap",
+            "veth",
+            "br-",
+            "bridge",  # Linux VPN / virtual ethernet
+            "utun",
+            "awdl",
+            "gif",
+            "stf",
+            "anpi",
+            "ap1",
+            "llw",
+            "ipsec",  # macOS
         ]
 
         best_ip = None
@@ -1363,6 +1393,12 @@ class MainWindow(QMainWindow):
 
         for iface_name, addrs in interfaces.items():
             iface_lower = iface_name.lower()
+
+            # Skip interfaces that report down where stats are available.
+            if stats is not None:
+                iface_stats = stats.get(iface_name)
+                if iface_stats is not None and not iface_stats.isup:
+                    continue
 
             if self._should_skip_interface(iface_lower, exclude_keywords):
                 continue
@@ -1383,7 +1419,7 @@ class MainWindow(QMainWindow):
         return any(excl in iface_lower for excl in exclude_keywords)
 
     def _is_priority_interface(self, iface_lower: str, priority_keywords: list) -> bool:
-        """Check if interface is a priority (Ethernet) interface."""
+        """Check if interface is a priority (physical NIC) interface."""
         return any(prio in iface_lower for prio in priority_keywords)
 
     def _get_valid_ipv4(self, addrs: list) -> str | None:

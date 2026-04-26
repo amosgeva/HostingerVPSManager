@@ -8,7 +8,7 @@ import sys
 
 from PyQt6.QtCore import QSettings
 from PyQt6.QtGui import QFont
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QSystemTrayIcon
 
 from . import __version__
 from .main_window import MainWindow
@@ -37,14 +37,18 @@ def main():
     # Create main window
     window = MainWindow()
 
-    # Check if should start minimized
+    # Check if should start minimized. Only honour the setting when a system
+    # tray is actually available — otherwise the window would hide with no
+    # way for the user to bring it back.
     settings = QSettings("Hostinger", "VPSManager")
     start_minimized = settings.value("start_minimized", False, type=bool)
 
-    if start_minimized:
+    if start_minimized and QSystemTrayIcon.isSystemTrayAvailable():
         logger.info("Starting minimized to system tray")
         window.hide()
     else:
+        if start_minimized:
+            logger.info("start_minimized requested but no system tray available; showing window")
         window.show()
 
     # Run the application
