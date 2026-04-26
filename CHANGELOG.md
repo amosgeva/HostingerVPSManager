@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.0] — Refactor + Tests (2026-04-26)
+
 ### Added
 
 - `src/controllers/firewall_controller.py` — first MVVM-lite controller
