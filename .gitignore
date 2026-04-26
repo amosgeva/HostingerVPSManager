@@ -73,6 +73,9 @@ venv.bak/
 *.sublime-project
 *.sublime-workspace
 
+# Local AI tooling state (Claude Code, etc.)
+.claude/
+
 # OS files
 .DS_Store
 .DS_Store?

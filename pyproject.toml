@@ -1,0 +1,122 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hostinger-vps-manager"
+version = "1.1.0"
+description = "Cross-platform desktop GUI for managing Hostinger VPS instances via the public Hostinger API."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Amos Geva", email = "amos@geva.solutions" }
+]
+keywords = ["hostinger", "vps", "pyqt6", "desktop", "gui", "infrastructure", "devops"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: X11 Applications :: Qt",
+    "Environment :: MacOS X",
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Internet",
+]
+dependencies = [
+    "PyQt6>=6.11.0",
+    "requests>=2.33.1",
+    "keyring>=25.7.0",
+    "matplotlib>=3.8.0",
+    "psutil>=7.2.2",
+    "pywin32>=311; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-qt>=4.4",
+    "pytest-mock>=3.12",
+    "ruff>=0.6",
+    "pylint>=3.3",
+    "bandit>=1.7",
+    "pre-commit>=3.7",
+    "pyinstaller>=6.20.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/amosgeva/HostingerVPSManager"
+Issues = "https://github.com/amosgeva/HostingerVPSManager/issues"
+Source = "https://github.com/amosgeva/HostingerVPSManager"
+
+[project.scripts]
+hostinger-vps-manager = "src.main:main"
+
+[tool.setuptools]
+packages = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["build", "dist", "assets", ".codacy"]
+
+[tool.ruff.lint]
+# Conservative starter set; tighten over time. Aligned with the existing
+# pylint allowlist in .codacy/tools-configs/pylint.rc.
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+    "S",    # bandit (security)
+    "C4",   # comprehensions
+    "SIM",  # simplify
+]
+ignore = [
+    "E501",  # line length handled by formatter
+    "S101",  # asserts in tests are fine
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-ra -q"
+
+[tool.bandit]
+exclude_dirs = ["tests", "build", "dist", ".codacy"]
+
+# Pylint configuration. We keep a strict allow-list (disable=all then
+# enable specific message ids) — same intent as the Codacy-managed
+# .codacy/tools-configs/pylint.rc, but lives here so CI doesn't depend
+# on a locally-generated, gitignored file.
+[tool.pylint.main]
+ignore = ["CVS"]
+persistent = true
+
+[tool.pylint."messages control"]
+disable = ["all"]
+enable = [
+    "E0100", "E0101", "E0102", "E0103", "E0104", "E0105", "E0106",
+    "E0107", "E0108", "E0110", "E0112", "E0113", "E0114", "E0115",
+    "E0117", "E0202", "E0203", "E0211", "E0236", "E0238", "E0239",
+    "E0240", "E0241", "E0301", "E0302", "E0601", "E0603", "E0604",
+    "E0701", "E0702", "E0704", "E0710", "E0711", "E0712", "E1003",
+    "E1102", "E1111", "E1120", "E1121", "E1123", "E1124", "E1125",
+    "E1126", "E1127", "E1132", "E1200", "E1201", "E1205", "E1206",
+    "E1300", "E1301", "E1302", "E1303", "E1304", "E1305", "E1306",
+    "W0101", "W0102", "W0106", "W0109", "W0122", "W0123", "W0150",
+    "W0199", "W0221", "W0222", "W0233", "W0410", "W0601", "W0622",
+    "W0702", "W0705", "W0711", "W1300", "W1301", "W1302", "W1303",
+    "W1305", "W1306", "W1307",
+]

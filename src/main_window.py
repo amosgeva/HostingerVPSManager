@@ -9,58 +9,106 @@ import platform
 import socket
 import sys
 from datetime import datetime
-from typing import Optional, List
+
+from PyQt6.QtCore import QSettings, Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtGui import QAction, QFont, QIcon
+from PyQt6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QFormLayout,
+    QFrame,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QMenu,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QSpinBox,
+    QSystemTrayIcon,
+    QTableWidget,
+    QTableWidgetItem,
+    QTabWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
+
+try:
+    import psutil
+
+    HAS_PSUTIL = True
+except ImportError:
+    HAS_PSUTIL = False
+
+from .api_client import (
+    Action,
+    DataCenter,
+    Firewall,
+    FirewallRule,
+    HostingerAPIClient,
+    HostingerAPIError,
+    MalwareScanMetrics,
+    PublicKey,
+    Subscription,
+    VirtualMachine,
+)
+from .app.constants import (
+    DEFAULT_REFRESH_SECONDS,
+    MAX_REFRESH_SECONDS,
+    MIN_REFRESH_SECONDS,
+)
+from .credentials import get_credential_manager
+from .styles import (
+    APP_NAME,
+    COLOR_CYAN,
+    COLOR_DANGER,
+    COLOR_SUCCESS,
+    COLOR_WARNING,
+    CONFIRM_DELETE_TITLE,
+    DARK_THEME,
+    FIREWALL_SERVER_ERROR_MSG,
+    FONT_SEGOE_UI,
+    INFO_LABEL_STYLE,
+    NO_SERVER_SELECTED_MSG,
+    REFRESH_BTN_TEXT,
+    STATUS_COLORS,
+)
+
+logger = logging.getLogger(__name__)
 
 
 def get_resource_path(relative_path: str) -> str:
     """Get absolute path to resource, works for dev and for PyInstaller."""
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         # Running as compiled executable
         base_path = sys._MEIPASS
     else:
         # Running in development
         base_path = os.path.dirname(os.path.dirname(__file__))
     return os.path.join(base_path, relative_path)
-from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QComboBox, QPushButton, QGroupBox, QTabWidget, QTableWidget,
-    QTableWidgetItem, QHeaderView, QMessageBox, QDialog, QLineEdit,
-    QFormLayout, QDialogButtonBox, QProgressBar, QTextEdit, QSpinBox,
-    QGridLayout, QFrame, QApplication, QSystemTrayIcon, QMenu,
-    QFileDialog, QCheckBox
-)
-from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QSettings
-from PyQt6.QtGui import QFont, QIcon, QAction
-
-try:
-    import psutil
-    HAS_PSUTIL = True
-except ImportError:
-    HAS_PSUTIL = False
-
-from .api_client import HostingerAPIClient, VirtualMachine, Firewall, FirewallRule, Action, PublicKey, MalwareScanMetrics, Subscription, DataCenter, HostingerAPIError
-from .credentials import get_credential_manager
-from .styles import (
-    DARK_THEME, STATUS_COLORS, REFRESH_BTN_TEXT, INFO_LABEL_STYLE,
-    FIREWALL_SERVER_ERROR_MSG, CONFIRM_DELETE_TITLE, APP_NAME,
-    NO_SERVER_SELECTED_MSG, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER,
-    COLOR_CYAN, FONT_SEGOE_UI
-)
-
-logger = logging.getLogger(__name__)
 
 
 class APIWorker(QThread):
     """Worker thread for API calls."""
+
     finished = pyqtSignal(object)
     error = pyqtSignal(str)
-    
+
     def __init__(self, func, *args, **kwargs):
         super().__init__()
         self.func = func
         self.args = args
         self.kwargs = kwargs
-    
+
     def run(self):
         try:
             result = self.func(*self.args, **self.kwargs)
@@ -179,7 +227,9 @@ class AccountManagerDialog(QDialog):
         self.accounts_table = QTableWidget()
         self.accounts_table.setColumnCount(2)
         self.accounts_table.setHorizontalHeaderLabels(["Account Name", "ID"])
-        self.accounts_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.accounts_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Stretch
+        )
         self.accounts_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
         self.accounts_table.setColumnWidth(1, 120)
         self.accounts_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -346,9 +396,10 @@ class AccountManagerDialog(QDialog):
         account_id = self.accounts_table.item(row, 1).text()
 
         reply = QMessageBox.question(
-            self, CONFIRM_DELETE_TITLE,
+            self,
+            CONFIRM_DELETE_TITLE,
             f"Are you sure you want to delete account '{name}'?\nThis cannot be undone.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
 
         if reply == QMessageBox.StandardButton.Yes:
@@ -361,58 +412,62 @@ class AccountManagerDialog(QDialog):
 
 class FirewallRuleDialog(QDialog):
     """Dialog for adding/editing firewall rules."""
-    
+
     def __init__(self, parent=None, rule: FirewallRule = None):
         super().__init__(parent)
         self.rule = rule
         self.setWindowTitle("Edit Rule" if rule else "Add Firewall Rule")
         self.setMinimumWidth(400)
         self.setup_ui()
-    
+
     def setup_ui(self):
         layout = QFormLayout(self)
-        
+
         self.protocol_combo = QComboBox()
         # Hostinger API supports these protocol values
-        self.protocol_combo.addItems(["TCP", "UDP", "SSH", "HTTP", "HTTPS", "MYSQL", "FTP", "ICMP", "GRE"])
+        self.protocol_combo.addItems(
+            ["TCP", "UDP", "SSH", "HTTP", "HTTPS", "MYSQL", "FTP", "ICMP", "GRE"]
+        )
         if self.rule:
             idx = self.protocol_combo.findText(self.rule.protocol.upper())
             if idx >= 0:
                 self.protocol_combo.setCurrentIndex(idx)
         layout.addRow("Protocol:", self.protocol_combo)
-        
+
         self.port_input = QLineEdit()
         self.port_input.setPlaceholderText("e.g., 80, 443, 8000-9000")
         if self.rule:
             self.port_input.setText(self.rule.port)
         layout.addRow("Port(s):", self.port_input)
-        
+
         self.source_combo = QComboBox()
         self.source_combo.addItems(["any", "custom"])
         if self.rule and self.rule.source != "any":
             self.source_combo.setCurrentText("custom")
         layout.addRow("Source:", self.source_combo)
-        
+
         self.source_detail_input = QLineEdit()
         self.source_detail_input.setPlaceholderText("IP address or CIDR (e.g., 192.168.1.0/24)")
         if self.rule and self.rule.source_detail:
             self.source_detail_input.setText(self.rule.source_detail)
         layout.addRow("Source IP/CIDR:", self.source_detail_input)
-        
+
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addRow(buttons)
-    
+
     def get_rule_data(self) -> dict:
         source = self.source_combo.currentText()
         return {
             "protocol": self.protocol_combo.currentText().upper(),
             "port": self.port_input.text().strip(),
             "source": source,
-            "source_detail": self.source_detail_input.text().strip() if source == "custom" else None
+            "source_detail": self.source_detail_input.text().strip()
+            if source == "custom"
+            else None,
         }
 
 
@@ -445,10 +500,7 @@ class SSHKeyDialog(QDialog):
         layout.addRow(buttons)
 
     def get_key_data(self) -> dict:
-        return {
-            "name": self.name_input.text().strip(),
-            "key": self.key_input.toPlainText().strip()
-        }
+        return {"name": self.name_input.text().strip(), "key": self.key_input.toPlainText().strip()}
 
 
 class SettingsDialog(QDialog):
@@ -472,7 +524,7 @@ class SettingsDialog(QDialog):
 
         # Auto-refresh interval
         self.refresh_interval_spin = QSpinBox()
-        self.refresh_interval_spin.setRange(10, 300)
+        self.refresh_interval_spin.setRange(MIN_REFRESH_SECONDS, MAX_REFRESH_SECONDS)
         self.refresh_interval_spin.setSuffix(" seconds")
         self.refresh_interval_spin.setToolTip("How often to auto-refresh server data")
         self.refresh_interval_spin.setStyleSheet("""
@@ -540,7 +592,7 @@ class SettingsDialog(QDialog):
     def load_settings(self):
         """Load current settings into UI."""
         self.refresh_interval_spin.setValue(
-            self.settings.value("refresh_interval", 30, type=int)
+            self.settings.value("refresh_interval", DEFAULT_REFRESH_SECONDS, type=int)
         )
         self.minimize_to_tray_check.setChecked(
             self.settings.value("minimize_to_tray", True, type=bool)
@@ -566,14 +618,14 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.api_client: Optional[HostingerAPIClient] = None
-        self.virtual_machines: List[VirtualMachine] = []
-        self.current_vm: Optional[VirtualMachine] = None
-        self.firewalls: List[Firewall] = []
-        self.current_firewall: Optional[Firewall] = None
-        self.data_centers: List[DataCenter] = []
-        self.workers: List[APIWorker] = []
-        self.current_account_id: Optional[str] = None
+        self.api_client: HostingerAPIClient | None = None
+        self.virtual_machines: list[VirtualMachine] = []
+        self.current_vm: VirtualMachine | None = None
+        self.firewalls: list[Firewall] = []
+        self.current_firewall: Firewall | None = None
+        self.data_centers: list[DataCenter] = []
+        self.workers: list[APIWorker] = []
+        self.current_account_id: str | None = None
         self.cred_manager = get_credential_manager()
 
         self.setWindowTitle(APP_NAME)
@@ -679,8 +731,10 @@ class MainWindow(QMainWindow):
 
     def show_tray_notification(self, title: str, message: str):
         """Show a system tray notification."""
-        if hasattr(self, 'tray_icon') and self.tray_icon.isVisible():
-            self.tray_icon.showMessage(title, message, QSystemTrayIcon.MessageIcon.Information, 5000)
+        if hasattr(self, "tray_icon") and self.tray_icon.isVisible():
+            self.tray_icon.showMessage(
+                title, message, QSystemTrayIcon.MessageIcon.Information, 5000
+            )
 
     def setup_ui(self):
         """Set up the main UI."""
@@ -750,7 +804,9 @@ class MainWindow(QMainWindow):
 
         # Status bar
         self.status_frame = QFrame()
-        self.status_frame.setStyleSheet("background-color: #16213e; border-radius: 10px; padding: 10px;")
+        self.status_frame.setStyleSheet(
+            "background-color: #16213e; border-radius: 10px; padding: 10px;"
+        )
         status_layout = QHBoxLayout(self.status_frame)
 
         self.status_label = QLabel("Status: --")
@@ -800,9 +856,14 @@ class MainWindow(QMainWindow):
 
         self.info_labels = {}
         info_fields = [
-            ("Hostname:", "hostname"), ("OS:", "os"), ("CPUs:", "cpus"),
-            ("Memory:", "memory"), ("Disk:", "disk"), ("Bandwidth:", "bandwidth"),
-            ("Created:", "created"), ("Data Center:", "datacenter")
+            ("Hostname:", "hostname"),
+            ("OS:", "os"),
+            ("CPUs:", "cpus"),
+            ("Memory:", "memory"),
+            ("Disk:", "disk"),
+            ("Bandwidth:", "bandwidth"),
+            ("Created:", "created"),
+            ("Data Center:", "datacenter"),
         ]
 
         for i, (label, key) in enumerate(info_fields):
@@ -821,10 +882,14 @@ class MainWindow(QMainWindow):
 
         self.sub_labels = {}
         sub_fields = [
-            ("Plan:", "plan_name"), ("Status:", "status"),
-            ("Billing Period:", "billing_period"), ("Price:", "price"),
-            ("Auto-Renewal:", "auto_renewal"), ("Next Billing:", "next_billing"),
-            ("Created:", "sub_created"), ("Expires:", "expires")
+            ("Plan:", "plan_name"),
+            ("Status:", "status"),
+            ("Billing Period:", "billing_period"),
+            ("Price:", "price"),
+            ("Auto-Renewal:", "auto_renewal"),
+            ("Next Billing:", "next_billing"),
+            ("Created:", "sub_created"),
+            ("Expires:", "expires"),
         ]
 
         for i, (label, key) in enumerate(sub_fields):
@@ -985,8 +1050,8 @@ class MainWindow(QMainWindow):
         self.rules_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
         self.rules_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         self.rules_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
-        self.rules_table.setColumnWidth(0, 80)   # ID
-        self.rules_table.setColumnWidth(2, 80)   # Port
+        self.rules_table.setColumnWidth(0, 80)  # ID
+        self.rules_table.setColumnWidth(2, 80)  # Port
         self.rules_table.setColumnWidth(4, 160)  # Actions (2x 70px buttons + spacing)
         self.rules_table.setAlternatingRowColors(True)
         self.rules_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -1031,9 +1096,11 @@ class MainWindow(QMainWindow):
         self.ssh_keys_table.setHorizontalHeaderLabels(["ID", "Name", "Key", "Actions"])
         self.ssh_keys_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         self.ssh_keys_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
-        self.ssh_keys_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.ssh_keys_table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.Stretch
+        )
         self.ssh_keys_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
-        self.ssh_keys_table.setColumnWidth(0, 80)   # ID
+        self.ssh_keys_table.setColumnWidth(0, 80)  # ID
         self.ssh_keys_table.setColumnWidth(1, 150)  # Name
         self.ssh_keys_table.setColumnWidth(3, 100)  # Actions
         self.ssh_keys_table.setAlternatingRowColors(True)
@@ -1211,7 +1278,7 @@ class MainWindow(QMainWindow):
         # Get local RAM info
         if HAS_PSUTIL:
             ram_bytes = psutil.virtual_memory().total
-            ram_gb = ram_bytes / (1024 ** 3)
+            ram_gb = ram_bytes / (1024**3)
             self.ram_info_label.setText(f"RAM: {ram_gb:.1f} GB")
         else:
             self.ram_info_label.setText("RAM: --")
@@ -1239,7 +1306,7 @@ class MainWindow(QMainWindow):
         worker = APIWorker(get_public_ip)
         worker.finished.connect(lambda ip: self.public_ip_label.setText(f"Public IP: {ip}"))
         worker.error.connect(lambda e: self.public_ip_label.setText("Public IP: --"))
-        self.workers.append(worker)
+        self._track_worker(worker)
         worker.start()
 
     def get_current_vps_ip(self) -> str:
@@ -1279,8 +1346,17 @@ class MainWindow(QMainWindow):
 
     def _find_best_ip(self, interfaces: dict) -> tuple:
         """Find the best IP from network interfaces."""
-        priority_keywords = ['ethernet', 'eth', 'local area connection', 'realtek', 'intel']
-        exclude_keywords = ['tailscale', 'vpn', 'virtual', 'vmware', 'vbox', 'docker', 'wsl', 'loopback']
+        priority_keywords = ["ethernet", "eth", "local area connection", "realtek", "intel"]
+        exclude_keywords = [
+            "tailscale",
+            "vpn",
+            "virtual",
+            "vmware",
+            "vbox",
+            "docker",
+            "wsl",
+            "loopback",
+        ]
 
         best_ip = None
         fallback_ip = None
@@ -1310,18 +1386,18 @@ class MainWindow(QMainWindow):
         """Check if interface is a priority (Ethernet) interface."""
         return any(prio in iface_lower for prio in priority_keywords)
 
-    def _get_valid_ipv4(self, addrs: list) -> Optional[str]:
+    def _get_valid_ipv4(self, addrs: list) -> str | None:
         """Get a valid IPv4 address from address list."""
         for addr in addrs:
             if addr.family == socket.AF_INET:
                 ip = addr.address
-                if not ip.startswith('127.') and not ip.startswith('169.254.'):
+                if not ip.startswith("127.") and not ip.startswith("169.254."):
                     return ip
         return None
 
     def setup_timers(self):
         """Set up auto-refresh timers."""
-        interval = self.settings.value("refresh_interval", 30, type=int) * 1000
+        interval = self.settings.value("refresh_interval", DEFAULT_REFRESH_SECONDS, type=int) * 1000
         self.refresh_timer = QTimer()
         self.refresh_timer.timeout.connect(self.auto_refresh)
         self.refresh_timer.start(interval)
@@ -1355,9 +1431,9 @@ class MainWindow(QMainWindow):
     def prompt_for_account(self):
         """Prompt user to add their first account."""
         QMessageBox.information(
-            self, "Welcome",
-            f"Welcome to {APP_NAME}!\n\n"
-            "Please add your first account to get started."
+            self,
+            "Welcome",
+            f"Welcome to {APP_NAME}!\n\nPlease add your first account to get started.",
         )
         dialog = AddAccountDialog(self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
@@ -1415,7 +1491,9 @@ class MainWindow(QMainWindow):
         dialog = SettingsDialog(self, self.settings)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             # Apply new refresh interval
-            new_interval = self.settings.value("refresh_interval", 30, type=int) * 1000
+            new_interval = (
+                self.settings.value("refresh_interval", DEFAULT_REFRESH_SECONDS, type=int) * 1000
+            )
             self.refresh_timer.setInterval(new_interval)
 
     def refresh_data(self):
@@ -1429,7 +1507,7 @@ class MainWindow(QMainWindow):
         worker = APIWorker(self.api_client.get_virtual_machines)
         worker.finished.connect(self.on_vms_loaded)
         worker.error.connect(self.on_api_error)
-        self.workers.append(worker)
+        self._track_worker(worker)
         worker.start()
 
         # Also load SSH keys
@@ -1441,7 +1519,7 @@ class MainWindow(QMainWindow):
             self.load_vm_details(self.current_vm.id)
             self.load_metrics()
 
-    def on_vms_loaded(self, vms: List[VirtualMachine]):
+    def on_vms_loaded(self, vms: list[VirtualMachine]):
         """Handle VMs loaded."""
         # Check for state changes and notify
         self.check_vm_state_changes(vms)
@@ -1476,10 +1554,10 @@ class MainWindow(QMainWindow):
         worker = APIWorker(self.api_client.get_data_centers)
         worker.finished.connect(self.on_data_centers_loaded)
         worker.error.connect(lambda e: logger.warning(f"Data centers error: {e}"))
-        self.workers.append(worker)
+        self._track_worker(worker)
         worker.start()
 
-    def on_data_centers_loaded(self, data_centers: List[DataCenter]):
+    def on_data_centers_loaded(self, data_centers: list[DataCenter]):
         """Handle data centers loaded."""
         self.data_centers = data_centers
         logger.info(f"Loaded {len(data_centers)} data centers")
@@ -1487,7 +1565,7 @@ class MainWindow(QMainWindow):
         if self.current_vm:
             self.update_info_display()
 
-    def check_vm_state_changes(self, new_vms: List[VirtualMachine]):
+    def check_vm_state_changes(self, new_vms: list[VirtualMachine]):
         """Check for VM state changes and show notifications."""
         notifications_enabled = self.settings.value("notifications_enabled", True, type=bool)
         if not notifications_enabled:
@@ -1497,8 +1575,7 @@ class MainWindow(QMainWindow):
             old_state = self.previous_vm_states.get(vm.id)
             if old_state and old_state != vm.state:
                 self.show_tray_notification(
-                    "Server Status Changed",
-                    f"{vm.hostname}: {old_state} → {vm.state}"
+                    "Server Status Changed", f"{vm.hostname}: {old_state} → {vm.state}"
                 )
             self.previous_vm_states[vm.id] = vm.state
 
@@ -1523,7 +1600,7 @@ class MainWindow(QMainWindow):
         worker = APIWorker(self.api_client.get_virtual_machine, vm_id)
         worker.finished.connect(self.on_vm_details_loaded)
         worker.error.connect(self.on_api_error)
-        self.workers.append(worker)
+        self._track_worker(worker)
         worker.start()
 
     def on_vm_details_loaded(self, vm: VirtualMachine):
@@ -1551,7 +1628,11 @@ class MainWindow(QMainWindow):
 
         # IP address
         if self.current_vm.ipv4:
-            ip = self.current_vm.ipv4[0].get("address", "--") if isinstance(self.current_vm.ipv4[0], dict) else str(self.current_vm.ipv4[0])
+            ip = (
+                self.current_vm.ipv4[0].get("address", "--")
+                if isinstance(self.current_vm.ipv4[0], dict)
+                else str(self.current_vm.ipv4[0])
+            )
             self.ip_label.setText(f"IP: {ip}")
         else:
             self.ip_label.setText("IP: --")
@@ -1610,7 +1691,7 @@ class MainWindow(QMainWindow):
 
         return self._format_datacenter_display(dc)
 
-    def _find_datacenter_by_id(self, dc_id: int) -> Optional[DataCenter]:
+    def _find_datacenter_by_id(self, dc_id: int) -> DataCenter | None:
         """Find a data center by ID."""
         for dc in self.data_centers:
             if dc.id == dc_id:
@@ -1636,7 +1717,7 @@ class MainWindow(QMainWindow):
         worker = APIWorker(self.api_client.get_metrics, self.current_vm.id)
         worker.finished.connect(self.on_metrics_loaded)
         worker.error.connect(lambda e: logger.warning(f"Metrics error: {e}"))
-        self.workers.append(worker)
+        self._track_worker(worker)
         worker.start()
 
     def on_metrics_loaded(self, metrics: dict):
@@ -1647,7 +1728,9 @@ class MainWindow(QMainWindow):
 
         # Log VM info for debugging
         if self.current_vm:
-            logger.info(f"VM info: memory={self.current_vm.memory}MB, disk={self.current_vm.disk}MB")
+            logger.info(
+                f"VM info: memory={self.current_vm.memory}MB, disk={self.current_vm.disk}MB"
+            )
 
         # Process CPU (cpu_usage with usage dict {timestamp: value})
         cpu_data = metrics.get("cpu_usage", {}).get("usage", {})
@@ -1668,8 +1751,12 @@ class MainWindow(QMainWindow):
             self.metric_bars["memory"].setValue(int(ram_percent))
             avg_ram_gb = avg_ram_bytes / 1024 / 1024 / 1024
             total_ram_gb = (self.current_vm.memory or 4096) / 1024
-            self.metric_bars["memory_label"].setText(f"{avg_ram_gb:.1f} / {total_ram_gb:.0f} GB ({ram_percent:.1f}%)")
-            logger.info(f"RAM: {avg_ram_bytes} bytes used, {total_ram_bytes} bytes total, {ram_percent:.1f}%")
+            self.metric_bars["memory_label"].setText(
+                f"{avg_ram_gb:.1f} / {total_ram_gb:.0f} GB ({ram_percent:.1f}%)"
+            )
+            logger.info(
+                f"RAM: {avg_ram_bytes} bytes used, {total_ram_bytes} bytes total, {ram_percent:.1f}%"
+            )
 
         # Process Disk (disk_space in bytes)
         disk_data = metrics.get("disk_space", {}).get("usage", {})
@@ -1682,8 +1769,12 @@ class MainWindow(QMainWindow):
             self.metric_bars["disk"].setValue(int(disk_percent))
             avg_disk_gb = avg_disk_bytes / 1024 / 1024 / 1024
             total_disk_gb = (self.current_vm.disk or 51200) / 1024
-            self.metric_bars["disk_label"].setText(f"{avg_disk_gb:.1f} / {total_disk_gb:.0f} GB ({disk_percent:.1f}%)")
-            logger.info(f"Disk: {avg_disk_bytes} bytes used, {total_disk_bytes} bytes total, {disk_percent:.1f}%")
+            self.metric_bars["disk_label"].setText(
+                f"{avg_disk_gb:.1f} / {total_disk_gb:.0f} GB ({disk_percent:.1f}%)"
+            )
+            logger.info(
+                f"Disk: {avg_disk_bytes} bytes used, {total_disk_bytes} bytes total, {disk_percent:.1f}%"
+            )
 
         # Process Network (incoming_traffic and outgoing_traffic in bytes)
         net_in_data = metrics.get("incoming_traffic", {}).get("usage", {})
@@ -1713,10 +1804,10 @@ class MainWindow(QMainWindow):
         worker = APIWorker(self.api_client.get_actions, self.current_vm.id)
         worker.finished.connect(self.on_actions_loaded)
         worker.error.connect(lambda e: logger.warning(f"Actions error: {e}"))
-        self.workers.append(worker)
+        self._track_worker(worker)
         worker.start()
 
-    def on_actions_loaded(self, actions: List[Action]):
+    def on_actions_loaded(self, actions: list[Action]):
         """Handle actions loaded."""
         self.logs_table.setRowCount(len(actions))
 
@@ -1730,8 +1821,12 @@ class MainWindow(QMainWindow):
                 status_item.setForeground(Qt.GlobalColor.red)
             self.logs_table.setItem(i, 1, status_item)
 
-            self.logs_table.setItem(i, 2, QTableWidgetItem(action.created_at[:19] if action.created_at else "--"))
-            self.logs_table.setItem(i, 3, QTableWidgetItem(action.updated_at[:19] if action.updated_at else "--"))
+            self.logs_table.setItem(
+                i, 2, QTableWidgetItem(action.created_at[:19] if action.created_at else "--")
+            )
+            self.logs_table.setItem(
+                i, 3, QTableWidgetItem(action.updated_at[:19] if action.updated_at else "--")
+            )
 
     # Server control methods
     def start_server(self):
@@ -1740,9 +1835,10 @@ class MainWindow(QMainWindow):
             return
 
         reply = QMessageBox.question(
-            self, "Confirm Start",
+            self,
+            "Confirm Start",
             f"Are you sure you want to start {self.current_vm.hostname}?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
 
         if reply == QMessageBox.StandardButton.Yes:
@@ -1754,9 +1850,10 @@ class MainWindow(QMainWindow):
             return
 
         reply = QMessageBox.question(
-            self, "Confirm Stop",
+            self,
+            "Confirm Stop",
             f"Are you sure you want to stop {self.current_vm.hostname}?\nThis will shut down the server.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
 
         if reply == QMessageBox.StandardButton.Yes:
@@ -1768,9 +1865,10 @@ class MainWindow(QMainWindow):
             return
 
         reply = QMessageBox.question(
-            self, "Confirm Restart",
+            self,
+            "Confirm Restart",
             f"Are you sure you want to restart {self.current_vm.hostname}?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
 
         if reply == QMessageBox.StandardButton.Yes:
@@ -1785,14 +1883,15 @@ class MainWindow(QMainWindow):
         worker = APIWorker(action_func, self.current_vm.id)
         worker.finished.connect(lambda a: self.on_server_action_complete(action_name, a))
         worker.error.connect(self.on_api_error)
-        self.workers.append(worker)
+        self._track_worker(worker)
         worker.start()
 
     def on_server_action_complete(self, action_name: str, action: Action):
         """Handle server action complete."""
         QMessageBox.information(
-            self, "Action Started",
-            f"{action_name.capitalize()} action has been initiated.\nAction ID: {action.id}"
+            self,
+            "Action Started",
+            f"{action_name.capitalize()} action has been initiated.\nAction ID: {action.id}",
         )
         # Refresh after a short delay
         QTimer.singleShot(2000, self.refresh_data)
@@ -1806,10 +1905,10 @@ class MainWindow(QMainWindow):
         worker = APIWorker(self.api_client.get_firewalls)
         worker.finished.connect(self.on_firewalls_loaded)
         worker.error.connect(lambda e: logger.warning(f"Firewalls error: {e}"))
-        self.workers.append(worker)
+        self._track_worker(worker)
         worker.start()
 
-    def on_firewalls_loaded(self, firewalls: List[Firewall]):
+    def on_firewalls_loaded(self, firewalls: list[Firewall]):
         """Handle firewalls loaded."""
         self.firewalls = firewalls
         self.firewall_combo.blockSignals(True)
@@ -1926,11 +2025,11 @@ class MainWindow(QMainWindow):
                 rule_data["protocol"],
                 rule_data["port"],
                 rule_data["source"],
-                rule_data["source_detail"]
+                rule_data["source_detail"],
             )
             worker.finished.connect(lambda r: self.on_rule_created(r))
             worker.error.connect(self.on_api_error)
-            self.workers.append(worker)
+            self._track_worker(worker)
             worker.start()
 
     def on_rule_created(self, rule: FirewallRule):
@@ -1954,11 +2053,11 @@ class MainWindow(QMainWindow):
                 rule_data["protocol"],
                 rule_data["port"],
                 rule_data["source"],
-                rule_data["source_detail"]
+                rule_data["source_detail"],
             )
             worker.finished.connect(lambda r: self.on_rule_updated(r))
             worker.error.connect(self.on_api_error)
-            self.workers.append(worker)
+            self._track_worker(worker)
             worker.start()
 
     def on_rule_updated(self, rule: FirewallRule):
@@ -1972,21 +2071,20 @@ class MainWindow(QMainWindow):
             return
 
         reply = QMessageBox.question(
-            self, CONFIRM_DELETE_TITLE,
+            self,
+            CONFIRM_DELETE_TITLE,
             f"Are you sure you want to delete this rule?\n"
             f"Protocol: {rule.protocol}, Port: {rule.port}",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
 
         if reply == QMessageBox.StandardButton.Yes:
             worker = APIWorker(
-                self.api_client.delete_firewall_rule,
-                self.current_firewall.id,
-                rule.id
+                self.api_client.delete_firewall_rule, self.current_firewall.id, rule.id
             )
             worker.finished.connect(lambda _: self.on_rule_deleted())
             worker.error.connect(self.on_api_error)
-            self.workers.append(worker)
+            self._track_worker(worker)
             worker.start()
 
     def on_rule_deleted(self):
@@ -2001,20 +2099,19 @@ class MainWindow(QMainWindow):
             return
 
         reply = QMessageBox.question(
-            self, "Confirm Activation",
+            self,
+            "Confirm Activation",
             f"Activate firewall '{self.current_firewall.name}' for {self.current_vm.hostname}?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
 
         if reply == QMessageBox.StandardButton.Yes:
             worker = APIWorker(
-                self.api_client.activate_firewall,
-                self.current_firewall.id,
-                self.current_vm.id
+                self.api_client.activate_firewall, self.current_firewall.id, self.current_vm.id
             )
             worker.finished.connect(lambda a: self.on_firewall_action_complete("Activation", a))
             worker.error.connect(self.on_api_error)
-            self.workers.append(worker)
+            self._track_worker(worker)
             worker.start()
 
     def deactivate_firewall(self):
@@ -2024,20 +2121,19 @@ class MainWindow(QMainWindow):
             return
 
         reply = QMessageBox.question(
-            self, "Confirm Deactivation",
+            self,
+            "Confirm Deactivation",
             f"Deactivate firewall for {self.current_vm.hostname}?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
 
         if reply == QMessageBox.StandardButton.Yes:
             worker = APIWorker(
-                self.api_client.deactivate_firewall,
-                self.current_firewall.id,
-                self.current_vm.id
+                self.api_client.deactivate_firewall, self.current_firewall.id, self.current_vm.id
             )
             worker.finished.connect(lambda a: self.on_firewall_action_complete("Deactivation", a))
             worker.error.connect(self.on_api_error)
-            self.workers.append(worker)
+            self._track_worker(worker)
             worker.start()
 
     def sync_firewall(self):
@@ -2046,15 +2142,15 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Error", FIREWALL_SERVER_ERROR_MSG)
             return
 
-        logger.info(f"Initiating firewall sync: firewall={self.current_firewall.id}, vm={self.current_vm.id}")
+        logger.info(
+            f"Initiating firewall sync: firewall={self.current_firewall.id}, vm={self.current_vm.id}"
+        )
         worker = APIWorker(
-            self.api_client.sync_firewall,
-            self.current_firewall.id,
-            self.current_vm.id
+            self.api_client.sync_firewall, self.current_firewall.id, self.current_vm.id
         )
         worker.finished.connect(lambda a: self.on_sync_firewall_complete(a))
         worker.error.connect(self.on_sync_firewall_error)
-        self.workers.append(worker)
+        self._track_worker(worker)
         worker.start()
 
     def on_sync_firewall_complete(self, action: Action):
@@ -2070,8 +2166,9 @@ class MainWindow(QMainWindow):
     def on_firewall_action_complete(self, action_name: str, action: Action):
         """Handle firewall action complete."""
         QMessageBox.information(
-            self, "Action Started",
-            f"Firewall {action_name.lower()} has been initiated.\nAction ID: {action.id}"
+            self,
+            "Action Started",
+            f"Firewall {action_name.lower()} has been initiated.\nAction ID: {action.id}",
         )
         QTimer.singleShot(2000, self.refresh_data)
 
@@ -2084,10 +2181,10 @@ class MainWindow(QMainWindow):
         worker = APIWorker(self.api_client.get_public_keys)
         worker.finished.connect(self.on_ssh_keys_loaded)
         worker.error.connect(lambda e: logger.warning(f"SSH keys error: {e}"))
-        self.workers.append(worker)
+        self._track_worker(worker)
         worker.start()
 
-    def on_ssh_keys_loaded(self, keys: List[PublicKey]):
+    def on_ssh_keys_loaded(self, keys: list[PublicKey]):
         """Handle SSH keys loaded."""
         self.ssh_keys_table.setRowCount(len(keys))
 
@@ -2150,14 +2247,10 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Error", "Name and Key are required.")
                 return
 
-            worker = APIWorker(
-                self.api_client.create_public_key,
-                data["name"],
-                data["key"]
-            )
+            worker = APIWorker(self.api_client.create_public_key, data["name"], data["key"])
             worker.finished.connect(self.on_ssh_key_created)
             worker.error.connect(self.on_api_error)
-            self.workers.append(worker)
+            self._track_worker(worker)
             worker.start()
 
     def on_ssh_key_created(self, key: PublicKey):
@@ -2168,17 +2261,18 @@ class MainWindow(QMainWindow):
     def delete_ssh_key(self, key: PublicKey):
         """Delete an SSH public key."""
         reply = QMessageBox.question(
-            self, CONFIRM_DELETE_TITLE,
+            self,
+            CONFIRM_DELETE_TITLE,
             f"Are you sure you want to delete the SSH key '{key.name}'?\n\n"
             "Note: This removes the key from your account but not from VMs it's attached to.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
 
         if reply == QMessageBox.StandardButton.Yes:
             worker = APIWorker(self.api_client.delete_public_key, key.id)
             worker.finished.connect(lambda _: self.on_ssh_key_deleted(key.name))
             worker.error.connect(self.on_api_error)
-            self.workers.append(worker)
+            self._track_worker(worker)
             worker.start()
 
     def on_ssh_key_deleted(self, key_name: str):
@@ -2195,7 +2289,7 @@ class MainWindow(QMainWindow):
         worker = APIWorker(self.api_client.get_malware_metrics, self.current_vm.id)
         worker.finished.connect(self.on_malware_metrics_loaded)
         worker.error.connect(lambda e: logger.warning(f"Malware metrics error: {e}"))
-        self.workers.append(worker)
+        self._track_worker(worker)
         worker.start()
 
     def on_malware_metrics_loaded(self, metrics: MalwareScanMetrics):
@@ -2257,25 +2351,27 @@ class MainWindow(QMainWindow):
             return
 
         reply = QMessageBox.question(
-            self, "Install Monarx",
+            self,
+            "Install Monarx",
             f"Install Monarx malware scanner on '{self.current_vm.hostname}'?\n\n"
             "This will enhance security by detecting and preventing malware.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
 
         if reply == QMessageBox.StandardButton.Yes:
             worker = APIWorker(self.api_client.install_monarx, self.current_vm.id)
             worker.finished.connect(self.on_monarx_installed)
             worker.error.connect(self.on_api_error)
-            self.workers.append(worker)
+            self._track_worker(worker)
             worker.start()
 
     def on_monarx_installed(self, action):
         """Handle Monarx installation initiated."""
         QMessageBox.information(
-            self, "Monarx Installation",
+            self,
+            "Monarx Installation",
             f"Monarx installation has been initiated.\nAction ID: {action.id}\n\n"
-            "This may take a few minutes to complete."
+            "This may take a few minutes to complete.",
         )
         QTimer.singleShot(5000, self.load_malware_metrics)
 
@@ -2286,24 +2382,26 @@ class MainWindow(QMainWindow):
             return
 
         reply = QMessageBox.question(
-            self, "Uninstall Monarx",
+            self,
+            "Uninstall Monarx",
             f"Uninstall Monarx malware scanner from '{self.current_vm.hostname}'?\n\n"
             "Warning: This will remove malware protection from this server.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
 
         if reply == QMessageBox.StandardButton.Yes:
             worker = APIWorker(self.api_client.uninstall_monarx, self.current_vm.id)
             worker.finished.connect(self.on_monarx_uninstalled)
             worker.error.connect(self.on_api_error)
-            self.workers.append(worker)
+            self._track_worker(worker)
             worker.start()
 
     def on_monarx_uninstalled(self, action):
         """Handle Monarx uninstallation initiated."""
         QMessageBox.information(
-            self, "Monarx Uninstallation",
-            f"Monarx uninstallation has been initiated.\nAction ID: {action.id}"
+            self,
+            "Monarx Uninstallation",
+            f"Monarx uninstallation has been initiated.\nAction ID: {action.id}",
         )
         QTimer.singleShot(5000, self.load_malware_metrics)
 
@@ -2314,14 +2412,14 @@ class MainWindow(QMainWindow):
             return
 
         # VMs have a subscription_id field
-        if not hasattr(self.current_vm, 'subscription_id') or not self.current_vm.subscription_id:
+        if not hasattr(self.current_vm, "subscription_id") or not self.current_vm.subscription_id:
             self._clear_subscription_display()
             return
 
         worker = APIWorker(self.api_client.get_subscription_by_id, self.current_vm.subscription_id)
         worker.finished.connect(self.on_subscription_loaded)
         worker.error.connect(lambda e: logger.warning(f"Subscription load error: {e}"))
-        self.workers.append(worker)
+        self._track_worker(worker)
         worker.start()
 
     def on_subscription_loaded(self, subscription: Subscription):
@@ -2398,16 +2496,32 @@ class MainWindow(QMainWindow):
         if "Unauthorized" in error_msg or "401" in error_msg:
             self.prompt_for_token()
 
+    def _track_worker(self, worker: APIWorker) -> None:
+        """Hold a reference to a worker and drop it once the thread exits.
+
+        Without this, every API call leaked an APIWorker for the lifetime of
+        the window. A full WorkerPool with cooperative shutdown lands in the
+        Phase 3 refactor; this is the minimal leak fix.
+        """
+        self.workers.append(worker)
+        worker.finished.connect(lambda *_: self._retire_worker(worker))
+        worker.error.connect(lambda *_: self._retire_worker(worker))
+
+    def _retire_worker(self, worker: APIWorker) -> None:
+        """Remove a finished worker and schedule it for deletion."""
+        if worker in self.workers:
+            self.workers.remove(worker)
+        worker.deleteLater()
+
     def closeEvent(self, event):
         """Handle window close - minimize to tray if enabled."""
         minimize_to_tray = self.settings.value("minimize_to_tray", True, type=bool)
 
-        if minimize_to_tray and hasattr(self, 'tray_icon') and self.tray_icon.isVisible():
+        if minimize_to_tray and hasattr(self, "tray_icon") and self.tray_icon.isVisible():
             event.ignore()
             self.hide()
             self.show_tray_notification(
-                APP_NAME,
-                "Application minimized to tray. Double-click to restore."
+                APP_NAME, "Application minimized to tray. Double-click to restore."
             )
         else:
             self.perform_cleanup()
@@ -2415,15 +2529,17 @@ class MainWindow(QMainWindow):
 
     def perform_cleanup(self):
         """Clean up resources before quitting."""
-        # Stop all workers
-        for worker in self.workers:
+        # Stop any in-flight workers. Cooperative interruption arrives in
+        # Phase 3 (WorkerPool); for now we still rely on terminate() as a
+        # last resort.
+        for worker in list(self.workers):
             if worker.isRunning():
                 worker.terminate()
                 worker.wait()
 
         self.refresh_timer.stop()
 
-        if hasattr(self, 'tray_icon'):
+        if hasattr(self, "tray_icon"):
             self.tray_icon.hide()
 
     def export_logs_to_csv(self):
@@ -2443,7 +2559,7 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            with open(file_path, 'w', newline='', encoding='utf-8') as f:
+            with open(file_path, "w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
                 # Header
                 headers = []
@@ -2480,7 +2596,7 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            with open(file_path, 'w', newline='', encoding='utf-8') as f:
+            with open(file_path, "w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
                 writer.writerow(["Metric", "Value", "Percentage"])
 
@@ -2488,15 +2604,10 @@ class MainWindow(QMainWindow):
                     bar = self.metric_bars.get(key)
                     label = self.metric_bars.get(f"{key}_label")
                     if bar and label:
-                        writer.writerow([
-                            key.capitalize(),
-                            label.text(),
-                            f"{bar.value()}%"
-                        ])
+                        writer.writerow([key.capitalize(), label.text(), f"{bar.value()}%"])
 
                 writer.writerow(["Uptime", self.uptime_label.text(), ""])
 
             QMessageBox.information(self, "Export", f"Metrics exported to:\n{file_path}")
         except Exception as e:
             QMessageBox.critical(self, "Export Error", f"Failed to export:\n{e}")
-

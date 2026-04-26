@@ -3,72 +3,86 @@ Hostinger API Client for VPS Management.
 Provides methods to interact with all VPS-related endpoints.
 """
 
-import requests
 import logging
-from typing import Optional, Dict, List
-from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+from .app.constants import (
+    API_BACKOFF_FACTOR,
+    API_BASE_URL,
+    API_MAX_RETRIES,
+    API_RETRY_STATUSES,
+    API_TIMEOUT_SECONDS,
+    METRIC_AVERAGING_HOURS,
+)
 
 logger = logging.getLogger(__name__)
-
-BASE_URL = "https://developers.hostinger.com"
 
 
 @dataclass
 class VirtualMachine:
     """Represents a VPS instance."""
+
     id: int
     hostname: str
     state: str
-    plan: Optional[str]
+    plan: str | None
     cpus: int
     memory: int  # MB
     disk: int  # MB
     bandwidth: int  # MB
-    ipv4: List[Dict]
-    ipv6: Optional[List[Dict]]
-    firewall_group_id: Optional[int]
-    template: Optional[Dict]
+    ipv4: list[dict]
+    ipv6: list[dict] | None
+    firewall_group_id: int | None
+    template: dict | None
     created_at: str
     actions_lock: str
-    ns1: Optional[str] = None
-    ns2: Optional[str] = None
-    subscription_id: Optional[str] = None
-    data_center_id: Optional[int] = None
+    ns1: str | None = None
+    ns2: str | None = None
+    subscription_id: str | None = None
+    data_center_id: int | None = None
 
 
 @dataclass
 class FirewallRule:
     """Represents a firewall rule."""
+
     id: int
     protocol: str
     port: str
     source: str
-    source_detail: Optional[str]
+    source_detail: str | None
 
 
 @dataclass
 class Firewall:
     """Represents a firewall configuration."""
+
     id: int
     name: str
     is_synced: bool
-    rules: List[FirewallRule]
+    rules: list[FirewallRule]
 
 
 @dataclass
 class Action:
     """Represents a VPS action/event."""
+
     id: int
     name: str
     state: str
     created_at: str
-    updated_at: Optional[str]
+    updated_at: str | None
 
 
 @dataclass
 class Backup:
     """Represents a VPS backup."""
+
     id: int
     location: str
     created_at: str
@@ -77,16 +91,18 @@ class Backup:
 @dataclass
 class Metrics:
     """Represents VPS metrics data."""
-    cpu: List[Dict]
-    memory: List[Dict]
-    disk: List[Dict]
-    network: List[Dict]
-    uptime: List[Dict]
+
+    cpu: list[dict]
+    memory: list[dict]
+    disk: list[dict]
+    network: list[dict]
+    uptime: list[dict]
 
 
 @dataclass
 class PublicKey:
     """Represents an SSH public key."""
+
     id: int
     name: str
     key: str
@@ -95,17 +111,19 @@ class PublicKey:
 @dataclass
 class MalwareScanMetrics:
     """Represents Monarx malware scanner metrics."""
+
     records: int
     malicious: int
     compromised: int
     scanned_files: int
-    scan_started_at: Optional[str]
-    scan_ended_at: Optional[str]
+    scan_started_at: str | None
+    scan_ended_at: str | None
 
 
 @dataclass
 class Subscription:
     """Represents a billing subscription."""
+
     id: str
     name: str
     status: str  # active, paused, cancelled, not_renewing, transferred, in_trial, future
@@ -116,22 +134,24 @@ class Subscription:
     renewal_price: int  # in cents
     is_auto_renewed: bool
     created_at: str
-    expires_at: Optional[str]
-    next_billing_at: Optional[str]
+    expires_at: str | None
+    next_billing_at: str | None
 
 
 @dataclass
 class DataCenter:
     """Represents a VPS data center."""
+
     id: int
-    name: Optional[str]
-    location: Optional[str]  # Country code (e.g., "us")
-    city: Optional[str]
-    continent: Optional[str]
+    name: str | None
+    location: str | None  # Country code (e.g., "us")
+    city: str | None
+    continent: str | None
 
 
 class HostingerAPIError(Exception):
     """Custom exception for API errors."""
+
     def __init__(self, message: str, status_code: int = None, correlation_id: str = None):
         self.message = message
         self.status_code = status_code
@@ -141,22 +161,48 @@ class HostingerAPIError(Exception):
 
 class HostingerAPIClient:
     """Client for interacting with the Hostinger API."""
-    
+
     def __init__(self, api_token: str):
         self.api_token = api_token
         self.session = requests.Session()
-        self.session.headers.update({
-            "Authorization": f"Bearer {api_token}",
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-        })
-    
-    def _request(self, method: str, endpoint: str, data: Dict = None, params: Dict = None) -> Dict:
+        self.session.headers.update(
+            {
+                "Authorization": f"Bearer {api_token}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            }
+        )
+
+        # Retry transient failures (5xx, 429) with exponential backoff and
+        # respect Retry-After. POST/PUT/DELETE included on the assumption
+        # that VPS actions are server-idempotent (start when already started
+        # is a no-op).
+        retry = Retry(
+            total=API_MAX_RETRIES,
+            backoff_factor=API_BACKOFF_FACTOR,
+            status_forcelist=API_RETRY_STATUSES,
+            allowed_methods=frozenset(["GET", "HEAD", "OPTIONS", "POST", "PUT", "DELETE"]),
+            respect_retry_after_header=True,
+            raise_on_status=False,
+        )
+        adapter = HTTPAdapter(max_retries=retry)
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
+
+        # Lazy caches for endpoints whose contents change rarely. Populated
+        # by the list-fetch methods; consulted by *_by_id helpers to avoid
+        # N+1 round-trips.
+        self._data_centers_index: dict[int, DataCenter] | None = None
+        self._subscriptions_index: dict[str, Subscription] | None = None
+
+    def _request(self, method: str, endpoint: str, data: dict = None, params: dict = None) -> dict:
         """Make an API request."""
-        url = f"{BASE_URL}{endpoint}"
+        url = f"{API_BASE_URL}{endpoint}"
         try:
-            response = self.session.request(method, url, json=data, params=params, timeout=30)
-            
+            response = self.session.request(
+                method, url, json=data, params=params, timeout=API_TIMEOUT_SECONDS
+            )
+
             if response.status_code == 401:
                 raise HostingerAPIError("Unauthorized - Invalid API token", 401)
             elif response.status_code == 429:
@@ -166,38 +212,38 @@ class HostingerAPIClient:
                 raise HostingerAPIError(
                     error_data.get("message", f"API error: {response.status_code}"),
                     response.status_code,
-                    error_data.get("correlation_id")
+                    error_data.get("correlation_id"),
                 )
-            
+
             return response.json() if response.text else {}
         except requests.exceptions.RequestException as e:
             logger.error(f"Request failed: {e}")
-            raise HostingerAPIError(f"Network error: {str(e)}")
-    
-    def _get(self, endpoint: str, params: Dict = None) -> Dict:
+            raise HostingerAPIError(f"Network error: {str(e)}") from e
+
+    def _get(self, endpoint: str, params: dict = None) -> dict:
         return self._request("GET", endpoint, params=params)
-    
-    def _post(self, endpoint: str, data: Dict = None) -> Dict:
+
+    def _post(self, endpoint: str, data: dict = None) -> dict:
         return self._request("POST", endpoint, data=data)
-    
-    def _put(self, endpoint: str, data: Dict = None) -> Dict:
+
+    def _put(self, endpoint: str, data: dict = None) -> dict:
         return self._request("PUT", endpoint, data=data)
-    
-    def _delete(self, endpoint: str, data: Dict = None) -> Dict:
+
+    def _delete(self, endpoint: str, data: dict = None) -> dict:
         return self._request("DELETE", endpoint, data=data)
-    
+
     # Virtual Machine endpoints
-    def get_virtual_machines(self) -> List[VirtualMachine]:
+    def get_virtual_machines(self) -> list[VirtualMachine]:
         """Get all virtual machines."""
         response = self._get("/api/vps/v1/virtual-machines")
         return [self._parse_vm(vm) for vm in response]
-    
+
     def get_virtual_machine(self, vm_id: int) -> VirtualMachine:
         """Get details of a specific virtual machine."""
         response = self._get(f"/api/vps/v1/virtual-machines/{vm_id}")
         return self._parse_vm(response)
-    
-    def _parse_vm(self, data: Dict) -> VirtualMachine:
+
+    def _parse_vm(self, data: dict) -> VirtualMachine:
         """Parse VM data into VirtualMachine object."""
         return VirtualMachine(
             id=data.get("id"),
@@ -217,7 +263,7 @@ class HostingerAPIClient:
             ns1=data.get("ns1"),
             ns2=data.get("ns2"),
             subscription_id=data.get("subscription_id"),
-            data_center_id=data.get("data_center_id")
+            data_center_id=data.get("data_center_id"),
         )
 
     # VM Control endpoints
@@ -237,21 +283,21 @@ class HostingerAPIClient:
         return self._parse_action(response)
 
     # Metrics endpoint
-    def get_metrics(self, vm_id: int, date_from: datetime = None, date_to: datetime = None) -> Dict:
+    def get_metrics(self, vm_id: int, date_from: datetime = None, date_to: datetime = None) -> dict:
         """Get metrics for a virtual machine."""
         if date_from is None:
-            date_from = datetime.now(timezone.utc) - timedelta(hours=24)
+            date_from = datetime.now(timezone.utc) - timedelta(hours=METRIC_AVERAGING_HOURS)
         if date_to is None:
             date_to = datetime.now(timezone.utc)
 
         params = {
             "date_from": date_from.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "date_to": date_to.strftime("%Y-%m-%dT%H:%M:%SZ")
+            "date_to": date_to.strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
         return self._get(f"/api/vps/v1/virtual-machines/{vm_id}/metrics", params=params)
 
     # Actions/Logs endpoints
-    def get_actions(self, vm_id: int, page: int = 1) -> List[Action]:
+    def get_actions(self, vm_id: int, page: int = 1) -> list[Action]:
         """Get actions history for a virtual machine."""
         response = self._get(f"/api/vps/v1/virtual-machines/{vm_id}/actions", params={"page": page})
         data = response.get("data", response) if isinstance(response, dict) else response
@@ -262,18 +308,18 @@ class HostingerAPIClient:
         response = self._get(f"/api/vps/v1/virtual-machines/{vm_id}/actions/{action_id}")
         return self._parse_action(response)
 
-    def _parse_action(self, data: Dict) -> Action:
+    def _parse_action(self, data: dict) -> Action:
         """Parse action data into Action object."""
         return Action(
             id=data.get("id"),
             name=data.get("name", ""),
             state=data.get("state", ""),
             created_at=data.get("created_at", ""),
-            updated_at=data.get("updated_at")
+            updated_at=data.get("updated_at"),
         )
 
     # Firewall endpoints
-    def get_firewalls(self, page: int = 1) -> List[Firewall]:
+    def get_firewalls(self, page: int = 1) -> list[Firewall]:
         """Get all firewalls."""
         response = self._get("/api/vps/v1/firewall", params={"page": page})
         data = response.get("data", response) if isinstance(response, dict) else response
@@ -294,30 +340,40 @@ class HostingerAPIClient:
         self._delete(f"/api/vps/v1/firewall/{firewall_id}")
         return True
 
-    def create_firewall_rule(self, firewall_id: int, protocol: str, port: str,
-                             source: str, source_detail: str = None) -> FirewallRule:
+    def create_firewall_rule(
+        self, firewall_id: int, protocol: str, port: str, source: str, source_detail: str = None
+    ) -> FirewallRule:
         """Create a new firewall rule."""
         # source_detail is required by API - use "any" as default if not provided
         data = {
             "protocol": protocol,
             "port": port,
             "source": source,
-            "source_detail": source_detail if source_detail else "any"
+            "source_detail": source_detail if source_detail else "any",
         }
         response = self._post(f"/api/vps/v1/firewall/{firewall_id}/rules", data=data)
         return self._parse_firewall_rule(response)
 
-    def update_firewall_rule(self, firewall_id: int, rule_id: int, protocol: str,
-                             port: str, source: str, source_detail: str = None) -> FirewallRule:
+    def update_firewall_rule(
+        self,
+        firewall_id: int,
+        rule_id: int,
+        protocol: str,
+        port: str,
+        source: str,
+        source_detail: str = None,
+    ) -> FirewallRule:
         """Update a firewall rule."""
         # source_detail is required by API - use "any" as default if not provided
         data = {
             "protocol": protocol,
             "port": port,
             "source": source,
-            "source_detail": source_detail if source_detail else "any"
+            "source_detail": source_detail if source_detail else "any",
         }
-        logger.info(f"Updating firewall rule: firewall_id={firewall_id}, rule_id={rule_id}, data={data}")
+        logger.info(
+            f"Updating firewall rule: firewall_id={firewall_id}, rule_id={rule_id}, data={data}"
+        )
         response = self._put(f"/api/vps/v1/firewall/{firewall_id}/rules/{rule_id}", data=data)
         return self._parse_firewall_rule(response)
 
@@ -343,28 +399,28 @@ class HostingerAPIClient:
         logger.info(f"Sync firewall response: {response}")
         return self._parse_action(response)
 
-    def _parse_firewall(self, data: Dict) -> Firewall:
+    def _parse_firewall(self, data: dict) -> Firewall:
         """Parse firewall data into Firewall object."""
         rules = [self._parse_firewall_rule(r) for r in data.get("rules", [])]
         return Firewall(
             id=data.get("id"),
             name=data.get("name", ""),
             is_synced=data.get("is_synced", False),
-            rules=rules
+            rules=rules,
         )
 
-    def _parse_firewall_rule(self, data: Dict) -> FirewallRule:
+    def _parse_firewall_rule(self, data: dict) -> FirewallRule:
         """Parse firewall rule data into FirewallRule object."""
         return FirewallRule(
             id=data.get("id"),
             protocol=data.get("protocol", ""),
             port=data.get("port", ""),
             source=data.get("source", ""),
-            source_detail=data.get("source_detail")
+            source_detail=data.get("source_detail"),
         )
 
     # Backup endpoints
-    def get_backups(self, vm_id: int, page: int = 1) -> List[Backup]:
+    def get_backups(self, vm_id: int, page: int = 1) -> list[Backup]:
         """Get backups for a virtual machine."""
         response = self._get(f"/api/vps/v1/virtual-machines/{vm_id}/backups", params={"page": page})
         data = response.get("data", response) if isinstance(response, dict) else response
@@ -375,16 +431,16 @@ class HostingerAPIClient:
         response = self._post(f"/api/vps/v1/virtual-machines/{vm_id}/backups/{backup_id}/restore")
         return self._parse_action(response)
 
-    def _parse_backup(self, data: Dict) -> Backup:
+    def _parse_backup(self, data: dict) -> Backup:
         """Parse backup data into Backup object."""
         return Backup(
             id=data.get("id"),
             location=data.get("location", ""),
-            created_at=data.get("created_at", "")
+            created_at=data.get("created_at", ""),
         )
 
     # Snapshot endpoints
-    def get_snapshot(self, vm_id: int) -> Optional[Dict]:
+    def get_snapshot(self, vm_id: int) -> dict | None:
         """Get snapshot for a virtual machine."""
         try:
             return self._get(f"/api/vps/v1/virtual-machines/{vm_id}/snapshot")
@@ -407,7 +463,7 @@ class HostingerAPIClient:
         return self._parse_action(response)
 
     # SSH Public Key endpoints
-    def get_public_keys(self, page: int = 1) -> List[PublicKey]:
+    def get_public_keys(self, page: int = 1) -> list[PublicKey]:
         """Get all SSH public keys associated with the account."""
         response = self._get("/api/vps/v1/public-keys", params={"page": page})
         logger.info(f"Get public keys response: {response}")
@@ -428,16 +484,12 @@ class HostingerAPIClient:
         """Delete an SSH public key."""
         self._delete(f"/api/vps/v1/public-keys/{key_id}")
 
-    def _parse_public_key(self, data: Dict) -> PublicKey:
+    def _parse_public_key(self, data: dict) -> PublicKey:
         """Parse public key data into PublicKey object."""
-        return PublicKey(
-            id=data.get("id"),
-            name=data.get("name", ""),
-            key=data.get("key", "")
-        )
+        return PublicKey(id=data.get("id"), name=data.get("name", ""), key=data.get("key", ""))
 
     # Malware Scanner (Monarx) endpoints
-    def get_malware_metrics(self, vm_id: int) -> Optional[MalwareScanMetrics]:
+    def get_malware_metrics(self, vm_id: int) -> MalwareScanMetrics | None:
         """Get malware scan metrics for a virtual machine."""
         try:
             response = self._get(f"/api/vps/v1/virtual-machines/{vm_id}/monarx")
@@ -459,7 +511,7 @@ class HostingerAPIClient:
         logger.info(f"Uninstall Monarx response: {response}")
         return self._parse_action(response)
 
-    def _parse_malware_metrics(self, data: Dict) -> MalwareScanMetrics:
+    def _parse_malware_metrics(self, data: dict) -> MalwareScanMetrics:
         """Parse malware metrics data into MalwareScanMetrics object."""
         return MalwareScanMetrics(
             records=data.get("records", 0),
@@ -467,27 +519,26 @@ class HostingerAPIClient:
             compromised=data.get("compromised", 0),
             scanned_files=data.get("scanned_files", 0),
             scan_started_at=data.get("scan_started_at"),
-            scan_ended_at=data.get("scan_ended_at")
+            scan_ended_at=data.get("scan_ended_at"),
         )
 
     # Billing: Subscriptions
-    def get_subscriptions(self) -> List[Subscription]:
+    def get_subscriptions(self) -> list[Subscription]:
         """Get all subscriptions for the account."""
         response = self._get("/api/billing/v1/subscriptions")
         logger.info(f"Get subscriptions response: {response}")
         subscriptions = [self._parse_subscription(s) for s in response]
         logger.info(f"Parsed {len(subscriptions)} subscriptions")
+        self._subscriptions_index = {s.id: s for s in subscriptions}
         return subscriptions
 
-    def get_subscription_by_id(self, subscription_id: str) -> Optional[Subscription]:
-        """Get a specific subscription by ID."""
-        subscriptions = self.get_subscriptions()
-        for sub in subscriptions:
-            if sub.id == subscription_id:
-                return sub
-        return None
+    def get_subscription_by_id(self, subscription_id: str) -> Subscription | None:
+        """Get a specific subscription by ID, populating the cache on first use."""
+        if self._subscriptions_index is None:
+            self.get_subscriptions()
+        return (self._subscriptions_index or {}).get(subscription_id)
 
-    def _parse_subscription(self, data: Dict) -> Subscription:
+    def _parse_subscription(self, data: dict) -> Subscription:
         """Parse subscription data into Subscription object."""
         return Subscription(
             id=data.get("id", ""),
@@ -501,34 +552,33 @@ class HostingerAPIClient:
             is_auto_renewed=data.get("is_auto_renewed", False),
             created_at=data.get("created_at", ""),
             expires_at=data.get("expires_at"),
-            next_billing_at=data.get("next_billing_at")
+            next_billing_at=data.get("next_billing_at"),
         )
 
     # Data Centers
-    def get_data_centers(self) -> List[DataCenter]:
+    def get_data_centers(self) -> list[DataCenter]:
         """Get all available data centers."""
         response = self._get("/api/vps/v1/data-centers")
         logger.info(f"Get data centers response: {response}")
         data_centers = [self._parse_data_center(dc) for dc in response]
         logger.info(f"Parsed {len(data_centers)} data centers")
+        self._data_centers_index = {dc.id: dc for dc in data_centers}
         return data_centers
 
-    def get_data_center_by_id(self, data_center_id: int) -> Optional[DataCenter]:
-        """Get a specific data center by ID."""
-        data_centers = self.get_data_centers()
-        for dc in data_centers:
-            if dc.id == data_center_id:
-                return dc
-        return None
+    def get_data_center_by_id(self, data_center_id: int) -> DataCenter | None:
+        """Get a specific data center by ID, populating the cache on first use."""
+        if self._data_centers_index is None:
+            self.get_data_centers()
+        return (self._data_centers_index or {}).get(data_center_id)
 
-    def _parse_data_center(self, data: Dict) -> DataCenter:
+    def _parse_data_center(self, data: dict) -> DataCenter:
         """Parse data center data into DataCenter object."""
         return DataCenter(
             id=data.get("id", 0),
             name=data.get("name"),
             location=data.get("location"),
             city=data.get("city"),
-            continent=data.get("continent")
+            continent=data.get("continent"),
         )
 
     # Test connection
@@ -539,4 +589,3 @@ class HostingerAPIClient:
             return True
         except HostingerAPIError:
             return False
-

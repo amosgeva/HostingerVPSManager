@@ -4,11 +4,12 @@ Provides secure storage and retrieval of Hostinger API tokens.
 Supports multiple accounts with named tokens.
 """
 
+import contextlib
 import json
-import keyring
 import logging
-from typing import Optional, List
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
+
+import keyring
 
 # Constants
 SERVICE_NAME = "HostingerVPSManager"
@@ -21,6 +22,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class Account:
     """Represents a Hostinger account."""
+
     name: str
     id: str  # Unique identifier for the account
 
@@ -31,7 +33,7 @@ class CredentialManager:
     def __init__(self):
         self.service_name = SERVICE_NAME
 
-    def get_accounts(self) -> List[Account]:
+    def get_accounts(self) -> list[Account]:
         """Get list of all stored accounts."""
         try:
             accounts_json = keyring.get_password(self.service_name, ACCOUNTS_KEY)
@@ -43,7 +45,7 @@ class CredentialManager:
             logger.error(f"Failed to get accounts: {e}")
             return []
 
-    def _save_accounts(self, accounts: List[Account]) -> bool:
+    def _save_accounts(self, accounts: list[Account]) -> bool:
         """Save the accounts list."""
         try:
             accounts_data = [asdict(acc) for acc in accounts]
@@ -53,7 +55,7 @@ class CredentialManager:
             logger.error(f"Failed to save accounts: {e}")
             return False
 
-    def add_account(self, name: str, token: str) -> Optional[Account]:
+    def add_account(self, name: str, token: str) -> Account | None:
         """
         Add a new account with its API token.
 
@@ -67,6 +69,7 @@ class CredentialManager:
         try:
             # Generate unique ID
             import uuid
+
             account_id = str(uuid.uuid4())[:8]
 
             # Store token
@@ -93,7 +96,9 @@ class CredentialManager:
                     if name:
                         acc.name = name
                     if token:
-                        keyring.set_password(self.service_name, f"{ACCOUNT_KEY_PREFIX}{account_id}", token)
+                        keyring.set_password(
+                            self.service_name, f"{ACCOUNT_KEY_PREFIX}{account_id}", token
+                        )
                     self._save_accounts(accounts)
                     return True
             return False
@@ -104,11 +109,10 @@ class CredentialManager:
     def delete_account(self, account_id: str) -> bool:
         """Delete an account and its token."""
         try:
-            # Delete token
-            try:
+            # Delete token; the user may have already removed it from the
+            # OS credential store outside the app.
+            with contextlib.suppress(keyring.errors.PasswordDeleteError):
                 keyring.delete_password(self.service_name, f"{ACCOUNT_KEY_PREFIX}{account_id}")
-            except keyring.errors.PasswordDeleteError:
-                pass
 
             # Remove from accounts list
             accounts = self.get_accounts()
@@ -121,7 +125,7 @@ class CredentialManager:
             logger.error(f"Failed to delete account: {e}")
             return False
 
-    def get_token(self, account_id: str) -> Optional[str]:
+    def get_token(self, account_id: str) -> str | None:
         """Get the API token for a specific account."""
         try:
             return keyring.get_password(self.service_name, f"{ACCOUNT_KEY_PREFIX}{account_id}")
@@ -139,7 +143,7 @@ class CredentialManager:
         account = self.add_account("Default Account", token)
         return account is not None
 
-    def get_api_token(self) -> Optional[str]:
+    def get_api_token(self) -> str | None:
         """Legacy: Get the first account's token."""
         accounts = self.get_accounts()
         if accounts:
@@ -152,7 +156,7 @@ class CredentialManager:
 
 
 # Singleton instance
-_credential_manager: Optional[CredentialManager] = None
+_credential_manager: CredentialManager | None = None
 
 
 def get_credential_manager() -> CredentialManager:
@@ -161,4 +165,3 @@ def get_credential_manager() -> CredentialManager:
     if _credential_manager is None:
         _credential_manager = CredentialManager()
     return _credential_manager
-

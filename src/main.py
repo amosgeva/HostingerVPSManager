@@ -3,18 +3,19 @@ Hostinger VPS Manager - Main Entry Point
 A modern GUI application for managing Hostinger VPS instances.
 """
 
-import sys
 import logging
-from PyQt6.QtWidgets import QApplication
+import sys
+
 from PyQt6.QtCore import QSettings
 from PyQt6.QtGui import QFont
+from PyQt6.QtWidgets import QApplication
 
+from . import __version__
 from .main_window import MainWindow
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 
 logger = logging.getLogger(__name__)
@@ -22,11 +23,11 @@ logger = logging.getLogger(__name__)
 
 def main():
     """Main entry point for the application."""
-    logger.info("Starting Hostinger VPS Manager")
+    logger.info("Starting Hostinger VPS Manager v%s", __version__)
 
     app = QApplication(sys.argv)
     app.setApplicationName("Hostinger VPS Manager")
-    app.setApplicationVersion("1.0.0")
+    app.setApplicationVersion(__version__)
     app.setOrganizationName("Hostinger VPS Manager")
 
     # Set default font
@@ -52,4 +53,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

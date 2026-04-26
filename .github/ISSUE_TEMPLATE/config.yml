@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Hostinger API documentation
+    url: https://developers.hostinger.com/
+    about: API behaviour questions belong with Hostinger, not in this repo.
+  - name: Security report (private)
+    url: mailto:amos@geva.solutions
+    about: Email security issues privately. Do not file a public issue.
