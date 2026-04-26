@@ -27,6 +27,15 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
+      # Needed by PyQt6 at *import* time (libEGL.so.1, libxcb-*).
+      # The lint matrix is ubuntu-only, so no `runner.os` guard.
+      - name: Install Linux Qt system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 \
+            libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 \
+            libxcb-xinerama0 libxcb-xkb1 libxcb-cursor0 libegl1
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -43,6 +52,22 @@ jobs:
 
       - name: Bandit
         run: bandit -r src/ -ll -q
+
+      # Real runtime smoke import. Lint/format/pylint/bandit are all
+      # AST-based; they don't actually import the modules and so will
+      # NOT catch a broken relative import like `from .app.constants`
+      # that resolves to a nonexistent path. Importing src.main forces
+      # Python to walk every transitive import; if any one of them is
+      # broken the job fails.
+      #
+      # QT_QPA_PLATFORM=offscreen so PyQt6 module imports don't try to
+      # connect to an X server on the headless runner. We never
+      # instantiate QApplication here, so the platform plugin should
+      # not even load — but the env var is cheap insurance.
+      - name: Smoke import
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -c "import src.main"
 
   build:
     name: Build (${{ matrix.os }})
