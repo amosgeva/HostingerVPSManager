@@ -9,9 +9,19 @@ from typing import Optional, Dict, List
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 
-logger = logging.getLogger(__name__)
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
-BASE_URL = "https://developers.hostinger.com"
+from .app.constants import (
+    API_BACKOFF_FACTOR,
+    API_BASE_URL,
+    API_MAX_RETRIES,
+    API_RETRY_STATUSES,
+    API_TIMEOUT_SECONDS,
+    METRIC_AVERAGING_HOURS,
+)
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -150,12 +160,36 @@ class HostingerAPIClient:
             "Content-Type": "application/json",
             "Accept": "application/json"
         })
-    
+
+        # Retry transient failures (5xx, 429) with exponential backoff and
+        # respect Retry-After. POST/PUT/DELETE included on the assumption
+        # that VPS actions are server-idempotent (start when already started
+        # is a no-op).
+        retry = Retry(
+            total=API_MAX_RETRIES,
+            backoff_factor=API_BACKOFF_FACTOR,
+            status_forcelist=API_RETRY_STATUSES,
+            allowed_methods=frozenset(["GET", "HEAD", "OPTIONS", "POST", "PUT", "DELETE"]),
+            respect_retry_after_header=True,
+            raise_on_status=False,
+        )
+        adapter = HTTPAdapter(max_retries=retry)
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
+
+        # Lazy caches for endpoints whose contents change rarely. Populated
+        # by the list-fetch methods; consulted by *_by_id helpers to avoid
+        # N+1 round-trips.
+        self._data_centers_index: Optional[Dict[int, "DataCenter"]] = None
+        self._subscriptions_index: Optional[Dict[str, "Subscription"]] = None
+
     def _request(self, method: str, endpoint: str, data: Dict = None, params: Dict = None) -> Dict:
         """Make an API request."""
-        url = f"{BASE_URL}{endpoint}"
+        url = f"{API_BASE_URL}{endpoint}"
         try:
-            response = self.session.request(method, url, json=data, params=params, timeout=30)
+            response = self.session.request(
+                method, url, json=data, params=params, timeout=API_TIMEOUT_SECONDS
+            )
             
             if response.status_code == 401:
                 raise HostingerAPIError("Unauthorized - Invalid API token", 401)
@@ -240,7 +274,7 @@ class HostingerAPIClient:
     def get_metrics(self, vm_id: int, date_from: datetime = None, date_to: datetime = None) -> Dict:
         """Get metrics for a virtual machine."""
         if date_from is None:
-            date_from = datetime.now(timezone.utc) - timedelta(hours=24)
+            date_from = datetime.now(timezone.utc) - timedelta(hours=METRIC_AVERAGING_HOURS)
         if date_to is None:
             date_to = datetime.now(timezone.utc)
 
@@ -477,15 +511,14 @@ class HostingerAPIClient:
         logger.info(f"Get subscriptions response: {response}")
         subscriptions = [self._parse_subscription(s) for s in response]
         logger.info(f"Parsed {len(subscriptions)} subscriptions")
+        self._subscriptions_index = {s.id: s for s in subscriptions}
         return subscriptions
 
     def get_subscription_by_id(self, subscription_id: str) -> Optional[Subscription]:
-        """Get a specific subscription by ID."""
-        subscriptions = self.get_subscriptions()
-        for sub in subscriptions:
-            if sub.id == subscription_id:
-                return sub
-        return None
+        """Get a specific subscription by ID, populating the cache on first use."""
+        if self._subscriptions_index is None:
+            self.get_subscriptions()
+        return (self._subscriptions_index or {}).get(subscription_id)
 
     def _parse_subscription(self, data: Dict) -> Subscription:
         """Parse subscription data into Subscription object."""
@@ -511,15 +544,14 @@ class HostingerAPIClient:
         logger.info(f"Get data centers response: {response}")
         data_centers = [self._parse_data_center(dc) for dc in response]
         logger.info(f"Parsed {len(data_centers)} data centers")
+        self._data_centers_index = {dc.id: dc for dc in data_centers}
         return data_centers
 
     def get_data_center_by_id(self, data_center_id: int) -> Optional[DataCenter]:
-        """Get a specific data center by ID."""
-        data_centers = self.get_data_centers()
-        for dc in data_centers:
-            if dc.id == data_center_id:
-                return dc
-        return None
+        """Get a specific data center by ID, populating the cache on first use."""
+        if self._data_centers_index is None:
+            self.get_data_centers()
+        return (self._data_centers_index or {}).get(data_center_id)
 
     def _parse_data_center(self, data: Dict) -> DataCenter:
         """Parse data center data into DataCenter object."""

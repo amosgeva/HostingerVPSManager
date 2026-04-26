@@ -1,9 +1,11 @@
-# Hostinger VPS Manager - Dependencies
-PyQt6>=6.10.1
-requests>=2.32.5
-keyring>=25.7.0
-pywin32>=311
-pyinstaller>=6.17.0
-matplotlib>=3.8.0
-psutil>=7.1.3
+# Hostinger VPS Manager - Runtime Dependencies
+# The canonical dependency set lives in pyproject.toml.
+# This file is kept for users who haven't migrated to PEP 517 installs.
+# For development install everything via:  pip install -e .[dev]
 
+PyQt6>=6.11.0
+requests>=2.33.1
+keyring>=25.7.0
+matplotlib>=3.8.0
+psutil>=7.2.2
+pywin32>=311; sys_platform == "win32"

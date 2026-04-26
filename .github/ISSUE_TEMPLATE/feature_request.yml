@@ -1,0 +1,37 @@
+name: Feature request
+description: Suggest a new capability for Hostinger VPS Manager
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: |
+        Describe the situation that prompted this request. "I keep having to
+        flip between the dashboard and the app to ..." is more useful than
+        "Please add X".
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to see?
+      description: A description of the feature, however rough.
+    validations:
+      required: true
+
+  - type: textarea
+    id: api
+    attributes:
+      label: Hostinger API endpoint(s) involved
+      description: |
+        If your request maps to a specific
+        [Hostinger API](https://developers.hostinger.com/) endpoint, list it
+        here.
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've considered

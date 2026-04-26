@@ -1,0 +1,75 @@
+name: Bug report
+description: Report a defect in Hostinger VPS Manager
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. **Never paste an API token** in this
+        issue — if a token has leaked, rotate it in the Hostinger dashboard
+        before doing anything else.
+
+  - type: input
+    id: app-version
+    attributes:
+      label: App version
+      description: From the title bar, or `python -c "from src import __version__; print(__version__)"`.
+      placeholder: "1.1.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 10
+        - Windows 11
+        - macOS
+        - Linux (Ubuntu/Debian)
+        - Linux (Fedora/RHEL)
+        - Linux (other)
+    validations:
+      required: true
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version
+      description: Output of `python --version`. Leave blank if you're using the prebuilt `.exe`.
+      placeholder: "3.13.1"
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the app
+        2. Go to ...
+        3. Click ...
+        4. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: |
+        Run `python run.py` from a terminal and paste the relevant lines
+        here. Strip any tokens or account IDs.
+      render: shell
