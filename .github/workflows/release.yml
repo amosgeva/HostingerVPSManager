@@ -129,7 +129,9 @@ jobs:
         run: ls -la artefacts/**/* || true
 
       - name: Publish release
-        uses: softprops/action-gh-release@v2
+        # Pinned to a full SHA per supply-chain hardening guidance.
+        # v2.6.2 — bump by re-resolving `softprops/action-gh-release@v2`.
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           tag_name: ${{ steps.ref.outputs.ref }}
           name: ${{ steps.ref.outputs.ref }}
