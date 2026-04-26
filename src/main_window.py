@@ -57,6 +57,7 @@ from .core.credentials import get_credential_manager
 from .core.formatting.datacenter import format_datacenter_for_vm, get_os_name
 from .core.network.ip_detect import get_local_ip
 from .ui.dialogs import (
+    AboutDialog,
     AccountManagerDialog,
     AddAccountDialog,
     SettingsDialog,
@@ -145,6 +146,10 @@ class MainWindow(QMainWindow):
         tray_menu.addAction(refresh_action)
 
         tray_menu.addSeparator()
+
+        about_action = QAction("About...", self)
+        about_action.triggered.connect(self.show_about)
+        tray_menu.addAction(about_action)
 
         quit_action = QAction("Quit", self)
         quit_action.triggered.connect(self.quit_application)
@@ -272,6 +277,12 @@ class MainWindow(QMainWindow):
         self.settings_btn = QPushButton("⚙ Settings")
         self.settings_btn.clicked.connect(self.show_settings)
         header_layout.addWidget(self.settings_btn)
+
+        # About button
+        self.about_btn = QPushButton("ℹ About")
+        self.about_btn.setToolTip("About Hostinger VPS Manager")
+        self.about_btn.clicked.connect(self.show_about)
+        header_layout.addWidget(self.about_btn)
 
         main_layout.addLayout(header_layout)
 
@@ -838,6 +849,10 @@ class MainWindow(QMainWindow):
                 self.settings.value("refresh_interval", DEFAULT_REFRESH_SECONDS, type=int) * 1000
             )
             self.refresh_timer.setInterval(new_interval)
+
+    def show_about(self):
+        """Show the About dialog (version, license, GitHub links)."""
+        AboutDialog(self).exec()
 
     def refresh_data(self):
         """Refresh all data from API."""
