@@ -69,6 +69,11 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: python -c "import src.main"
 
+      - name: Pytest
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: pytest -q
+
   build:
     name: Build (${{ matrix.os }})
     needs: lint
