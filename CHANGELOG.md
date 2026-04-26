@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `src/ui/dialogs/` — one file per `QDialog` subclass:
+  `add_account.py`, `account_manager.py`, `firewall_rule.py`,
+  `ssh_key.py`, `settings.py`, plus an `__init__.py` re-export.
+- `src/app/resources.py` — small shared `get_resource_path` helper
+  (was inlined on `MainWindow`; AccountManagerDialog needed it too).
+
+### Changed
+
+- `MainWindow` no longer carries the five dialog classes (~490 lines
+  deleted). It imports them from `src.ui.dialogs` instead. File now
+  ≈ 2,000 lines, down from 2,502 at the start of the public-app
+  upgrade effort.
+
 - `src/core/network/ip_detect.py` — pure-function module containing the
   cross-platform LAN-IP detection that was inlined on `MainWindow`
   (`get_local_ip`, `find_best_ip`, `should_skip_interface`,
