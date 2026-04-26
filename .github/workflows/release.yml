@@ -1,0 +1,141 @@
+name: Release
+
+# Tag-driven release: push a tag like `v1.2.0` and we'll build the
+# Windows / Linux / macOS artefacts and publish them to a GitHub
+# release. The tag must match `v*.*.*`.
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  # Allow re-running for an existing tag without retagging.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build a release for (e.g. v1.2.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write   # needed to create the GitHub Release + upload assets
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact-name: HostingerVPSManager-windows
+            artifact-path: dist/HostingerVPSManager.exe
+          - os: ubuntu-22.04
+            artifact-name: HostingerVPSManager-linux
+            artifact-path: dist/HostingerVPSManager
+          - os: macos-latest
+            artifact-name: HostingerVPSManager-macos
+            artifact-path: dist/HostingerVPSManager.app
+    steps:
+      - name: Resolve ref
+        id: ref
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "ref=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install Linux Qt system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 \
+            libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 \
+            libxcb-xinerama0 libxcb-xkb1 libxcb-cursor0 libegl1
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Build with PyInstaller
+        run: pyinstaller HostingerVPSManager.spec --clean --noconfirm
+
+      # Mac .app is a directory; tar it so users get a single download.
+      - name: Package macOS .app
+        if: runner.os == 'macOS'
+        run: |
+          cd dist
+          tar -czf HostingerVPSManager-macos.tar.gz HostingerVPSManager.app
+
+      # Linux single-file binary; rename so the asset has the OS in its
+      # name without colliding with the windows .exe asset.
+      - name: Rename Linux binary
+        if: runner.os == 'Linux'
+        run: |
+          mv dist/HostingerVPSManager dist/HostingerVPSManager-linux
+
+      - name: Upload build artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: |
+            dist/HostingerVPSManager.exe
+            dist/HostingerVPSManager-linux
+            dist/HostingerVPSManager-macos.tar.gz
+          if-no-files-found: ignore
+          retention-days: 14
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve ref
+        id: ref
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "ref=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+
+      - name: Download all build artefacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artefacts
+
+      - name: List artefacts
+        run: ls -la artefacts/**/* || true
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ref.outputs.ref }}
+          name: ${{ steps.ref.outputs.ref }}
+          generate_release_notes: true
+          fail_on_unmatched_files: false
+          files: |
+            artefacts/HostingerVPSManager-windows/HostingerVPSManager.exe
+            artefacts/HostingerVPSManager-linux/HostingerVPSManager-linux
+            artefacts/HostingerVPSManager-macos/HostingerVPSManager-macos.tar.gz
