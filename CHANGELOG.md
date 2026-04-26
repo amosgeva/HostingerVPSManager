@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `src/workers/` — new package containing `APIWorker` (extracted from
+  `main_window.py`) and a new `WorkerPool` lifetime manager. The pool
+  retires workers automatically when `finished` / `error` fires
+  (replacing the v1.1.0 stop-gap helpers) and provides cooperative
+  shutdown: `requestInterruption()` first, `wait(timeout_ms)` for
+  graceful exit, `terminate()` only as a last resort. `terminate()`
+  used to be the default and skips `finally` blocks — a real
+  reliability hazard.
+- `tests/unit/workers/test_worker_pool.py` — 7 pytest-qt tests
+  covering submit / retire-on-finish / retire-on-error / concurrent
+  workers / shutdown drain / shutdown-no-op. Total suite now 58.
 - `src/ui/dialogs/` — one file per `QDialog` subclass:
   `add_account.py`, `account_manager.py`, `firewall_rule.py`,
   `ssh_key.py`, `settings.py`, plus an `__init__.py` re-export.
@@ -18,6 +29,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   (was inlined on `MainWindow`; AccountManagerDialog needed it too).
 
 ### Changed
+
+- `MainWindow.workers` (a list) and the v1.1.0 `_track_worker` /
+  `_retire_worker` helpers are gone. Replaced by `self.worker_pool`
+  (a `WorkerPool`). Every `self._track_worker(worker); worker.start()`
+  pair (21 sites) collapses to `self.worker_pool.submit(worker)`.
+  `perform_cleanup()` calls `self.worker_pool.shutdown()` instead of
+  iterating `self.workers` and `terminate()`-ing.
 
 - `MainWindow` no longer carries the five dialog classes (~490 lines
   deleted). It imports them from `src.ui.dialogs` instead. File now
