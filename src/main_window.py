@@ -49,7 +49,12 @@ try:
 except ImportError:
     HAS_PSUTIL = False
 
-from .api_client import (
+from .app.constants import (
+    DEFAULT_REFRESH_SECONDS,
+    MAX_REFRESH_SECONDS,
+    MIN_REFRESH_SECONDS,
+)
+from .core.api_client import (
     Action,
     DataCenter,
     Firewall,
@@ -61,13 +66,8 @@ from .api_client import (
     Subscription,
     VirtualMachine,
 )
-from .app.constants import (
-    DEFAULT_REFRESH_SECONDS,
-    MAX_REFRESH_SECONDS,
-    MIN_REFRESH_SECONDS,
-)
-from .credentials import get_credential_manager
-from .styles import (
+from .core.credentials import get_credential_manager
+from .ui.styles import (
     APP_NAME,
     COLOR_CYAN,
     COLOR_DANGER,
