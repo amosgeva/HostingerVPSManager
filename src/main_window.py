@@ -8,7 +8,7 @@ import os
 import platform
 from datetime import datetime
 
-from PyQt6.QtCore import QSettings, Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtCore import QSettings, Qt, QTimer
 from PyQt6.QtGui import QAction, QFont, QIcon
 from PyQt6.QtWidgets import (
     QApplication,
@@ -49,7 +49,6 @@ from .core.api_client import (
     Firewall,
     FirewallRule,
     HostingerAPIClient,
-    HostingerAPIError,
     MalwareScanMetrics,
     PublicKey,
     Subscription,
@@ -80,30 +79,9 @@ from .ui.styles import (
     REFRESH_BTN_TEXT,
     STATUS_COLORS,
 )
+from .workers import APIWorker, WorkerPool
 
 logger = logging.getLogger(__name__)
-
-
-class APIWorker(QThread):
-    """Worker thread for API calls."""
-
-    finished = pyqtSignal(object)
-    error = pyqtSignal(str)
-
-    def __init__(self, func, *args, **kwargs):
-        super().__init__()
-        self.func = func
-        self.args = args
-        self.kwargs = kwargs
-
-    def run(self):
-        try:
-            result = self.func(*self.args, **self.kwargs)
-            self.finished.emit(result)
-        except HostingerAPIError as e:
-            self.error.emit(str(e.message))
-        except Exception as e:
-            self.error.emit(str(e))
 
 
 class MainWindow(QMainWindow):
@@ -117,7 +95,7 @@ class MainWindow(QMainWindow):
         self.firewalls: list[Firewall] = []
         self.current_firewall: Firewall | None = None
         self.data_centers: list[DataCenter] = []
-        self.workers: list[APIWorker] = []
+        self.worker_pool = WorkerPool()
         self.current_account_id: str | None = None
         self.cred_manager = get_credential_manager()
 
@@ -800,8 +778,7 @@ class MainWindow(QMainWindow):
         worker = APIWorker(get_public_ip)
         worker.finished.connect(lambda ip: self.public_ip_label.setText(f"Public IP: {ip}"))
         worker.error.connect(lambda e: self.public_ip_label.setText("Public IP: --"))
-        self._track_worker(worker)
-        worker.start()
+        self.worker_pool.submit(worker)
 
     def get_current_vps_ip(self) -> str:
         """Get the current VPS IP address from the label."""
@@ -930,8 +907,7 @@ class MainWindow(QMainWindow):
         worker = APIWorker(self.api_client.get_virtual_machines)
         worker.finished.connect(self.on_vms_loaded)
         worker.error.connect(self.on_api_error)
-        self._track_worker(worker)
-        worker.start()
+        self.worker_pool.submit(worker)
 
         # Also load SSH keys
         self.load_ssh_keys()
@@ -977,8 +953,7 @@ class MainWindow(QMainWindow):
         worker = APIWorker(self.api_client.get_data_centers)
         worker.finished.connect(self.on_data_centers_loaded)
         worker.error.connect(lambda e: logger.warning(f"Data centers error: {e}"))
-        self._track_worker(worker)
-        worker.start()
+        self.worker_pool.submit(worker)
 
     def on_data_centers_loaded(self, data_centers: list[DataCenter]):
         """Handle data centers loaded."""
@@ -1023,8 +998,7 @@ class MainWindow(QMainWindow):
         worker = APIWorker(self.api_client.get_virtual_machine, vm_id)
         worker.finished.connect(self.on_vm_details_loaded)
         worker.error.connect(self.on_api_error)
-        self._track_worker(worker)
-        worker.start()
+        self.worker_pool.submit(worker)
 
     def on_vm_details_loaded(self, vm: VirtualMachine):
         """Handle VM details loaded."""
@@ -1101,8 +1075,7 @@ class MainWindow(QMainWindow):
         worker = APIWorker(self.api_client.get_metrics, self.current_vm.id)
         worker.finished.connect(self.on_metrics_loaded)
         worker.error.connect(lambda e: logger.warning(f"Metrics error: {e}"))
-        self._track_worker(worker)
-        worker.start()
+        self.worker_pool.submit(worker)
 
     def on_metrics_loaded(self, metrics: dict):
         """Handle metrics loaded."""
@@ -1188,8 +1161,7 @@ class MainWindow(QMainWindow):
         worker = APIWorker(self.api_client.get_actions, self.current_vm.id)
         worker.finished.connect(self.on_actions_loaded)
         worker.error.connect(lambda e: logger.warning(f"Actions error: {e}"))
-        self._track_worker(worker)
-        worker.start()
+        self.worker_pool.submit(worker)
 
     def on_actions_loaded(self, actions: list[Action]):
         """Handle actions loaded."""
@@ -1267,8 +1239,7 @@ class MainWindow(QMainWindow):
         worker = APIWorker(action_func, self.current_vm.id)
         worker.finished.connect(lambda a: self.on_server_action_complete(action_name, a))
         worker.error.connect(self.on_api_error)
-        self._track_worker(worker)
-        worker.start()
+        self.worker_pool.submit(worker)
 
     def on_server_action_complete(self, action_name: str, action: Action):
         """Handle server action complete."""
@@ -1289,8 +1260,7 @@ class MainWindow(QMainWindow):
         worker = APIWorker(self.api_client.get_firewalls)
         worker.finished.connect(self.on_firewalls_loaded)
         worker.error.connect(lambda e: logger.warning(f"Firewalls error: {e}"))
-        self._track_worker(worker)
-        worker.start()
+        self.worker_pool.submit(worker)
 
     def on_firewalls_loaded(self, firewalls: list[Firewall]):
         """Handle firewalls loaded."""
@@ -1413,8 +1383,7 @@ class MainWindow(QMainWindow):
             )
             worker.finished.connect(lambda r: self.on_rule_created(r))
             worker.error.connect(self.on_api_error)
-            self._track_worker(worker)
-            worker.start()
+            self.worker_pool.submit(worker)
 
     def on_rule_created(self, rule: FirewallRule):
         """Handle rule created."""
@@ -1441,8 +1410,7 @@ class MainWindow(QMainWindow):
             )
             worker.finished.connect(lambda r: self.on_rule_updated(r))
             worker.error.connect(self.on_api_error)
-            self._track_worker(worker)
-            worker.start()
+            self.worker_pool.submit(worker)
 
     def on_rule_updated(self, rule: FirewallRule):
         """Handle rule updated."""
@@ -1468,8 +1436,7 @@ class MainWindow(QMainWindow):
             )
             worker.finished.connect(lambda _: self.on_rule_deleted())
             worker.error.connect(self.on_api_error)
-            self._track_worker(worker)
-            worker.start()
+            self.worker_pool.submit(worker)
 
     def on_rule_deleted(self):
         """Handle rule deleted."""
@@ -1495,8 +1462,7 @@ class MainWindow(QMainWindow):
             )
             worker.finished.connect(lambda a: self.on_firewall_action_complete("Activation", a))
             worker.error.connect(self.on_api_error)
-            self._track_worker(worker)
-            worker.start()
+            self.worker_pool.submit(worker)
 
     def deactivate_firewall(self):
         """Deactivate firewall for current VM."""
@@ -1517,8 +1483,7 @@ class MainWindow(QMainWindow):
             )
             worker.finished.connect(lambda a: self.on_firewall_action_complete("Deactivation", a))
             worker.error.connect(self.on_api_error)
-            self._track_worker(worker)
-            worker.start()
+            self.worker_pool.submit(worker)
 
     def sync_firewall(self):
         """Sync firewall rules to current VM."""
@@ -1534,8 +1499,7 @@ class MainWindow(QMainWindow):
         )
         worker.finished.connect(lambda a: self.on_sync_firewall_complete(a))
         worker.error.connect(self.on_sync_firewall_error)
-        self._track_worker(worker)
-        worker.start()
+        self.worker_pool.submit(worker)
 
     def on_sync_firewall_complete(self, action: Action):
         """Handle sync firewall complete."""
@@ -1565,8 +1529,7 @@ class MainWindow(QMainWindow):
         worker = APIWorker(self.api_client.get_public_keys)
         worker.finished.connect(self.on_ssh_keys_loaded)
         worker.error.connect(lambda e: logger.warning(f"SSH keys error: {e}"))
-        self._track_worker(worker)
-        worker.start()
+        self.worker_pool.submit(worker)
 
     def on_ssh_keys_loaded(self, keys: list[PublicKey]):
         """Handle SSH keys loaded."""
@@ -1634,8 +1597,7 @@ class MainWindow(QMainWindow):
             worker = APIWorker(self.api_client.create_public_key, data["name"], data["key"])
             worker.finished.connect(self.on_ssh_key_created)
             worker.error.connect(self.on_api_error)
-            self._track_worker(worker)
-            worker.start()
+            self.worker_pool.submit(worker)
 
     def on_ssh_key_created(self, key: PublicKey):
         """Handle SSH key created."""
@@ -1656,8 +1618,7 @@ class MainWindow(QMainWindow):
             worker = APIWorker(self.api_client.delete_public_key, key.id)
             worker.finished.connect(lambda _: self.on_ssh_key_deleted(key.name))
             worker.error.connect(self.on_api_error)
-            self._track_worker(worker)
-            worker.start()
+            self.worker_pool.submit(worker)
 
     def on_ssh_key_deleted(self, key_name: str):
         """Handle SSH key deleted."""
@@ -1673,8 +1634,7 @@ class MainWindow(QMainWindow):
         worker = APIWorker(self.api_client.get_malware_metrics, self.current_vm.id)
         worker.finished.connect(self.on_malware_metrics_loaded)
         worker.error.connect(lambda e: logger.warning(f"Malware metrics error: {e}"))
-        self._track_worker(worker)
-        worker.start()
+        self.worker_pool.submit(worker)
 
     def on_malware_metrics_loaded(self, metrics: MalwareScanMetrics):
         """Handle malware metrics loaded."""
@@ -1746,8 +1706,7 @@ class MainWindow(QMainWindow):
             worker = APIWorker(self.api_client.install_monarx, self.current_vm.id)
             worker.finished.connect(self.on_monarx_installed)
             worker.error.connect(self.on_api_error)
-            self._track_worker(worker)
-            worker.start()
+            self.worker_pool.submit(worker)
 
     def on_monarx_installed(self, action):
         """Handle Monarx installation initiated."""
@@ -1777,8 +1736,7 @@ class MainWindow(QMainWindow):
             worker = APIWorker(self.api_client.uninstall_monarx, self.current_vm.id)
             worker.finished.connect(self.on_monarx_uninstalled)
             worker.error.connect(self.on_api_error)
-            self._track_worker(worker)
-            worker.start()
+            self.worker_pool.submit(worker)
 
     def on_monarx_uninstalled(self, action):
         """Handle Monarx uninstallation initiated."""
@@ -1803,8 +1761,7 @@ class MainWindow(QMainWindow):
         worker = APIWorker(self.api_client.get_subscription_by_id, self.current_vm.subscription_id)
         worker.finished.connect(self.on_subscription_loaded)
         worker.error.connect(lambda e: logger.warning(f"Subscription load error: {e}"))
-        self._track_worker(worker)
-        worker.start()
+        self.worker_pool.submit(worker)
 
     def on_subscription_loaded(self, subscription: Subscription):
         """Handle subscription data loaded."""
@@ -1880,23 +1837,6 @@ class MainWindow(QMainWindow):
         if "Unauthorized" in error_msg or "401" in error_msg:
             self.prompt_for_token()
 
-    def _track_worker(self, worker: APIWorker) -> None:
-        """Hold a reference to a worker and drop it once the thread exits.
-
-        Without this, every API call leaked an APIWorker for the lifetime of
-        the window. A full WorkerPool with cooperative shutdown lands in the
-        Phase 3 refactor; this is the minimal leak fix.
-        """
-        self.workers.append(worker)
-        worker.finished.connect(lambda *_: self._retire_worker(worker))
-        worker.error.connect(lambda *_: self._retire_worker(worker))
-
-    def _retire_worker(self, worker: APIWorker) -> None:
-        """Remove a finished worker and schedule it for deletion."""
-        if worker in self.workers:
-            self.workers.remove(worker)
-        worker.deleteLater()
-
     def closeEvent(self, event):
         """Handle window close - minimize to tray if enabled."""
         minimize_to_tray = self.settings.value("minimize_to_tray", True, type=bool)
@@ -1913,14 +1853,7 @@ class MainWindow(QMainWindow):
 
     def perform_cleanup(self):
         """Clean up resources before quitting."""
-        # Stop any in-flight workers. Cooperative interruption arrives in
-        # Phase 3 (WorkerPool); for now we still rely on terminate() as a
-        # last resort.
-        for worker in list(self.workers):
-            if worker.isRunning():
-                worker.terminate()
-                worker.wait()
-
+        self.worker_pool.shutdown()
         self.refresh_timer.stop()
 
         if hasattr(self, "tray_icon"):
