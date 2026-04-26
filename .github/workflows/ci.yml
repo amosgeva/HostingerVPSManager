@@ -39,7 +39,7 @@ jobs:
         run: ruff format --check src/
 
       - name: Pylint
-        run: pylint --rcfile=.codacy/tools-configs/pylint.rc src/
+        run: pylint src/
 
       - name: Bandit
         run: bandit -r src/ -ll -q

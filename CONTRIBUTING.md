@@ -50,7 +50,8 @@ The body should explain *why* the change is needed; the diff already shows what.
 - We use [`ruff`](https://docs.astral.sh/ruff/) for linting and formatting; the
   config lives in `pyproject.toml`.
 - We use [`pylint`](https://pylint.readthedocs.io/) with a strict allowlist
-  (`.codacy/tools-configs/pylint.rc`). New rules need a justification in the PR.
+  configured in `pyproject.toml` under `[tool.pylint."messages control"]`.
+  New rules need a justification in the PR.
 - We use [`bandit`](https://bandit.readthedocs.io/) for security linting.
 - All checks run in `pre-commit` and in CI; please run them locally before
   pushing:
