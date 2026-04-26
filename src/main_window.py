@@ -6,7 +6,6 @@ import csv
 import logging
 import os
 import platform
-import socket
 import sys
 from datetime import datetime
 
@@ -67,6 +66,8 @@ from .core.api_client import (
     VirtualMachine,
 )
 from .core.credentials import get_credential_manager
+from .core.formatting.datacenter import format_datacenter_for_vm, get_os_name
+from .core.network.ip_detect import get_local_ip
 from .ui.styles import (
     APP_NAME,
     COLOR_CYAN,
@@ -1285,7 +1286,7 @@ class MainWindow(QMainWindow):
             self.ram_info_label.setText("RAM: --")
 
         # Get local private IP from Ethernet adapter (not VPN/Tailscale)
-        private_ip = self.get_ethernet_ip()
+        private_ip = get_local_ip()
         self.private_ip_label.setText(f"Private IP: {private_ip}")
 
         # Get public IP (in background to avoid blocking UI)
@@ -1324,112 +1325,6 @@ class MainWindow(QMainWindow):
         """Get the private IP address from the label."""
         text = self.private_ip_label.text()
         return text.replace("Private IP: ", "") if text else "--"
-
-    def get_ethernet_ip(self) -> str:
-        """Get the IP address of the primary physical network adapter.
-
-        Works across Windows, macOS, and Linux: prefers interfaces that look
-        like a physical NIC (en*/eth*/wlan*/...) over virtual ones
-        (utun*/awdl*/tun*/tap*/docker*/...). Down interfaces are skipped when
-        psutil.net_if_stats() is available.
-        """
-        if not HAS_PSUTIL:
-            return self._get_ip_via_socket()
-
-        try:
-            interfaces = psutil.net_if_addrs()
-            try:
-                stats = psutil.net_if_stats()
-            except Exception:
-                stats = None
-            best_ip, fallback_ip = self._find_best_ip(interfaces, stats)
-            return best_ip or fallback_ip or "--"
-        except Exception:
-            return "--"
-
-    def _get_ip_via_socket(self) -> str:
-        """Fallback method to get IP using socket."""
-        try:
-            hostname = socket.gethostname()
-            return socket.gethostbyname(hostname)
-        except Exception:
-            return "--"
-
-    def _find_best_ip(self, interfaces: dict, stats: dict | None = None) -> tuple:
-        """Find the best IP from network interfaces."""
-        # Substrings that suggest a physical NIC across all three OSes.
-        #   Linux:   eth*, enp*, eno*, ens*, wlan*, wlp*, wlo*
-        #   macOS:   en0 (Wi-Fi or first ethernet), en1, en2, ...
-        #   Windows: "Ethernet*", "Wi-Fi*", "Local Area Connection*"
-        priority_keywords = ["ethernet", "eth", "wi-fi", "wlan", "wl", "en"]
-        # Substrings that mark a virtual / transient / VPN interface.
-        exclude_keywords = [
-            "tailscale",
-            "vpn",
-            "virtual",
-            "vmware",
-            "vbox",
-            "docker",
-            "wsl",
-            "loopback",
-            "vethernet",  # Windows Hyper-V / WSL
-            "tun",
-            "tap",
-            "veth",
-            "br-",
-            "bridge",  # Linux VPN / virtual ethernet
-            "utun",
-            "awdl",
-            "gif",
-            "stf",
-            "anpi",
-            "ap1",
-            "llw",
-            "ipsec",  # macOS
-        ]
-
-        best_ip = None
-        fallback_ip = None
-
-        for iface_name, addrs in interfaces.items():
-            iface_lower = iface_name.lower()
-
-            # Skip interfaces that report down where stats are available.
-            if stats is not None:
-                iface_stats = stats.get(iface_name)
-                if iface_stats is not None and not iface_stats.isup:
-                    continue
-
-            if self._should_skip_interface(iface_lower, exclude_keywords):
-                continue
-
-            ip = self._get_valid_ipv4(addrs)
-            if ip is None:
-                continue
-
-            if self._is_priority_interface(iface_lower, priority_keywords):
-                return (ip, fallback_ip)  # Found priority, return immediately
-            elif fallback_ip is None:
-                fallback_ip = ip
-
-        return (best_ip, fallback_ip)
-
-    def _should_skip_interface(self, iface_lower: str, exclude_keywords: list) -> bool:
-        """Check if interface should be skipped."""
-        return any(excl in iface_lower for excl in exclude_keywords)
-
-    def _is_priority_interface(self, iface_lower: str, priority_keywords: list) -> bool:
-        """Check if interface is a priority (physical NIC) interface."""
-        return any(prio in iface_lower for prio in priority_keywords)
-
-    def _get_valid_ipv4(self, addrs: list) -> str | None:
-        """Get a valid IPv4 address from address list."""
-        for addr in addrs:
-            if addr.family == socket.AF_INET:
-                ip = addr.address
-                if not ip.startswith("127.") and not ip.startswith("169.254."):
-                    return ip
-        return None
 
     def setup_timers(self):
         """Set up auto-refresh timers."""
@@ -1698,52 +1593,13 @@ class MainWindow(QMainWindow):
 
         vm = self.current_vm
         self.info_labels["hostname"].setText(vm.hostname)
-        self.info_labels["os"].setText(self._get_os_name(vm))
+        self.info_labels["os"].setText(get_os_name(vm))
         self.info_labels["cpus"].setText(str(vm.cpus))
         self.info_labels["memory"].setText(f"{vm.memory} MB ({vm.memory // 1024} GB)")
         self.info_labels["disk"].setText(f"{vm.disk} MB ({vm.disk // 1024} GB)")
         self.info_labels["bandwidth"].setText(f"{vm.bandwidth // 1024 // 1024} GB/month")
         self.info_labels["created"].setText(vm.created_at[:10] if vm.created_at else "--")
-        self.info_labels["datacenter"].setText(self._get_datacenter_text(vm))
-
-    def _get_os_name(self, vm: VirtualMachine) -> str:
-        """Extract OS name from VM template."""
-        if not vm.template:
-            return "--"
-        if isinstance(vm.template, dict):
-            return vm.template.get("name", "--")
-        return "--"
-
-    def _get_datacenter_text(self, vm: VirtualMachine) -> str:
-        """Get formatted data center text for display."""
-        if not vm.data_center_id:
-            return "--"
-        if not self.data_centers:
-            return str(vm.data_center_id)
-
-        dc = self._find_datacenter_by_id(vm.data_center_id)
-        if not dc:
-            return str(vm.data_center_id)
-
-        return self._format_datacenter_display(dc)
-
-    def _find_datacenter_by_id(self, dc_id: int) -> DataCenter | None:
-        """Find a data center by ID."""
-        for dc in self.data_centers:
-            if dc.id == dc_id:
-                return dc
-        return None
-
-    def _format_datacenter_display(self, dc: DataCenter) -> str:
-        """Format data center for display."""
-        parts = []
-        if dc.city:
-            parts.append(dc.city)
-        if dc.location:
-            parts.append(dc.location.upper())
-        if parts:
-            return ", ".join(parts)
-        return dc.name if dc.name else "--"
+        self.info_labels["datacenter"].setText(format_datacenter_for_vm(vm, self.data_centers))
 
     def load_metrics(self):
         """Load metrics for current VM."""

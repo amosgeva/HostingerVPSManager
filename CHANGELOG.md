@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `src/core/network/ip_detect.py` — pure-function module containing the
+  cross-platform LAN-IP detection that was inlined on `MainWindow`
+  (`get_local_ip`, `find_best_ip`, `should_skip_interface`,
+  `is_priority_interface`, `get_valid_ipv4`, plus the
+  `PRIORITY_KEYWORDS` / `EXCLUDE_KEYWORDS` constants).
+- `src/core/formatting/datacenter.py` — pure-function helpers for VM /
+  data-center display strings (`get_os_name`,
+  `format_datacenter_display`, `find_datacenter_by_id`,
+  `format_datacenter_for_vm`).
+- `tests/` — first pytest suite. **51 tests** across
+  `test_ip_detect.py` and `test_datacenter_formatting.py`, all pure
+  functions over plain dataclasses and `SimpleNamespace` fakes (no
+  Qt, no real network, no mocks).
+- `pytest` step in the CI lint matrix (Python 3.10–3.13).
+
+### Changed
+
+- `MainWindow` no longer carries IP-detection or datacenter/OS
+  formatting methods (~135 lines deleted): `get_ethernet_ip`,
+  `_get_ip_via_socket`, `_find_best_ip`,
+  `_should_skip_interface`, `_is_priority_interface`,
+  `_get_valid_ipv4`, `_get_os_name`, `_get_datacenter_text`,
+  `_find_datacenter_by_id`, `_format_datacenter_display` are gone;
+  call sites use the new free functions directly.
+
 ## [1.2.0] — Cross-platform
 
 ### Added
