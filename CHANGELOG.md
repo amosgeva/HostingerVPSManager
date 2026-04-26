@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.1] — WorkerPool race fix (2026-04-26)
+
+### Fixed
+
+- `WorkerPool._retire` now `wait()`s for the worker's OS thread to
+  fully exit before calling `deleteLater()`. `APIWorker` emits its
+  `finished` / `error` signal from inside `run()`, so when the retire
+  slot fires the thread may still be in QThread teardown. The
+  deleteLater event can then race with that teardown and Qt aborts
+  with `QThread: Destroyed while thread is still running` (SIGABRT).
+  Surfaced on Python 3.12 / Qt 6.11 in CI for the merge-to-main run
+  of the v1.3.0 release prep; would also have bitten production
+  under tight retire/submit cycles (high-frequency auto-refresh).
+
 ## [1.3.0] — Refactor + Tests (2026-04-26)
 
 ### Added
