@@ -11,7 +11,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from .app.constants import (
+from ..app.constants import (
     API_BACKOFF_FACTOR,
     API_BASE_URL,
     API_MAX_RETRIES,

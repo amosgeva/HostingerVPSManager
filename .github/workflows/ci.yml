@@ -44,6 +44,22 @@ jobs:
       - name: Bandit
         run: bandit -r src/ -ll -q
 
+      # Real runtime smoke import. Lint/format/pylint/bandit are all
+      # AST-based; they don't actually import the modules and so will
+      # NOT catch a broken relative import like `from .app.constants`
+      # that resolves to a nonexistent path. Importing src.main forces
+      # Python to walk every transitive import; if any one of them is
+      # broken the job fails.
+      #
+      # QT_QPA_PLATFORM=offscreen so PyQt6 module imports don't try to
+      # connect to an X server on the headless runner. We never
+      # instantiate QApplication here, so the platform plugin should
+      # not even load — but the env var is cheap insurance.
+      - name: Smoke import
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -c "import src.main"
+
   build:
     name: Build (${{ matrix.os }})
     needs: lint
