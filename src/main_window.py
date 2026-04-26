@@ -43,11 +43,10 @@ except ImportError:
 
 from .app.constants import DEFAULT_REFRESH_SECONDS
 from .app.resources import get_resource_path
+from .controllers import FirewallController
 from .core.api_client import (
     Action,
     DataCenter,
-    Firewall,
-    FirewallRule,
     HostingerAPIClient,
     MalwareScanMetrics,
     PublicKey,
@@ -60,7 +59,6 @@ from .core.network.ip_detect import get_local_ip
 from .ui.dialogs import (
     AccountManagerDialog,
     AddAccountDialog,
-    FirewallRuleDialog,
     SettingsDialog,
     SSHKeyDialog,
 )
@@ -72,13 +70,13 @@ from .ui.styles import (
     COLOR_WARNING,
     CONFIRM_DELETE_TITLE,
     DARK_THEME,
-    FIREWALL_SERVER_ERROR_MSG,
     FONT_SEGOE_UI,
     INFO_LABEL_STYLE,
     NO_SERVER_SELECTED_MSG,
     REFRESH_BTN_TEXT,
     STATUS_COLORS,
 )
+from .ui.tabs import FirewallTab
 from .workers import APIWorker, WorkerPool
 
 logger = logging.getLogger(__name__)
@@ -92,12 +90,15 @@ class MainWindow(QMainWindow):
         self.api_client: HostingerAPIClient | None = None
         self.virtual_machines: list[VirtualMachine] = []
         self.current_vm: VirtualMachine | None = None
-        self.firewalls: list[Firewall] = []
-        self.current_firewall: Firewall | None = None
         self.data_centers: list[DataCenter] = []
         self.worker_pool = WorkerPool()
         self.current_account_id: str | None = None
         self.cred_manager = get_credential_manager()
+
+        # Phase 3 controllers — feature-state lives here, MainWindow just
+        # coordinates account / VM selection across them.
+        self.firewall_controller = FirewallController(self.api_client, self.worker_pool, self)
+        self.firewall_controller.error_occurred.connect(self.on_api_error)
 
         self.setWindowTitle(APP_NAME)
         self.setMinimumSize(1200, 800)
@@ -480,73 +481,9 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(tab, "Logs")
 
     def create_firewall_tab(self):
-        """Create the firewall tab."""
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-
-        # Firewall selector
-        fw_header = QHBoxLayout()
-        fw_header.addWidget(QLabel("Firewall:"))
-
-        self.firewall_combo = QComboBox()
-        self.firewall_combo.setMinimumWidth(250)
-        self.firewall_combo.currentIndexChanged.connect(self.on_firewall_changed)
-        fw_header.addWidget(self.firewall_combo)
-
-        self.activate_fw_btn = QPushButton("Activate")
-        self.activate_fw_btn.setObjectName("success")
-        self.activate_fw_btn.clicked.connect(self.activate_firewall)
-        fw_header.addWidget(self.activate_fw_btn)
-
-        self.deactivate_fw_btn = QPushButton("Deactivate")
-        self.deactivate_fw_btn.setObjectName("danger")
-        self.deactivate_fw_btn.clicked.connect(self.deactivate_firewall)
-        fw_header.addWidget(self.deactivate_fw_btn)
-
-        self.sync_fw_btn = QPushButton("Sync Rules")
-        self.sync_fw_btn.clicked.connect(self.sync_firewall)
-        fw_header.addWidget(self.sync_fw_btn)
-
-        fw_header.addStretch()
-        layout.addLayout(fw_header)
-
-        # Firewall rules table
-        rules_group = QGroupBox("Firewall Rules")
-        rules_layout = QVBoxLayout(rules_group)
-
-        self.rules_table = QTableWidget()
-        self.rules_table.setColumnCount(5)
-        self.rules_table.setHorizontalHeaderLabels(["ID", "Protocol", "Port", "Source", "Actions"])
-        self.rules_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        self.rules_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        self.rules_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
-        self.rules_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        self.rules_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
-        self.rules_table.setColumnWidth(0, 80)  # ID
-        self.rules_table.setColumnWidth(2, 80)  # Port
-        self.rules_table.setColumnWidth(4, 160)  # Actions (2x 70px buttons + spacing)
-        self.rules_table.setAlternatingRowColors(True)
-        self.rules_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.rules_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        rules_layout.addWidget(self.rules_table)
-
-        # Rule buttons
-        rule_btns = QHBoxLayout()
-
-        self.add_rule_btn = QPushButton("+ Add Rule")
-        self.add_rule_btn.setObjectName("success")
-        self.add_rule_btn.clicked.connect(self.add_firewall_rule)
-        rule_btns.addWidget(self.add_rule_btn)
-
-        self.refresh_rules_btn = QPushButton(REFRESH_BTN_TEXT)
-        self.refresh_rules_btn.clicked.connect(self.load_firewalls)
-        rule_btns.addWidget(self.refresh_rules_btn)
-
-        rule_btns.addStretch()
-        rules_layout.addLayout(rule_btns)
-
-        layout.addWidget(rules_group)
-        self.tabs.addTab(tab, "Firewall")
+        """Add the firewall tab — paired with `self.firewall_controller`."""
+        self.firewall_tab = FirewallTab(self.firewall_controller, self)
+        self.tabs.addTab(self.firewall_tab, "Firewall")
 
     def create_ssh_tab(self):
         """Create the SSH Keys tab."""
@@ -823,10 +760,15 @@ class MainWindow(QMainWindow):
             self.current_account_id = accounts[0].id
             token = self.cred_manager.get_token(self.current_account_id)
             if token:
-                self.api_client = HostingerAPIClient(token)
+                self._set_api_client(HostingerAPIClient(token))
                 self.refresh_data()
         else:
             self.prompt_for_account()
+
+    def _set_api_client(self, api_client: HostingerAPIClient | None) -> None:
+        """Update the API client and propagate to controllers."""
+        self.api_client = api_client
+        self.firewall_controller.set_api_client(api_client)
 
     def prompt_for_account(self):
         """Prompt user to add their first account."""
@@ -844,7 +786,7 @@ class MainWindow(QMainWindow):
                 if account:
                     self.load_accounts()
                     self.current_account_id = account.id
-                    self.api_client = HostingerAPIClient(token)
+                    self._set_api_client(HostingerAPIClient(token))
                     self.refresh_data()
                 else:
                     QMessageBox.critical(self, "Error", "Failed to save account.")
@@ -865,9 +807,10 @@ class MainWindow(QMainWindow):
             self.current_account_id = account_id
             token = self.cred_manager.get_token(account_id)
             if token:
-                self.api_client = HostingerAPIClient(token)
+                self._set_api_client(HostingerAPIClient(token))
                 self.virtual_machines = []
                 self.current_vm = None
+                self.firewall_controller.set_current_vm(None)
                 self.server_combo.clear()
                 self.refresh_data()
             else:
@@ -940,7 +883,7 @@ class MainWindow(QMainWindow):
         self.refresh_btn.setText(REFRESH_BTN_TEXT)
 
         # Load firewalls
-        self.load_firewalls()
+        self.firewall_controller.load_firewalls()
 
         # Load data centers (cache)
         self.load_data_centers()
@@ -983,6 +926,7 @@ class MainWindow(QMainWindow):
             return
 
         self.current_vm = self.virtual_machines[index]
+        self.firewall_controller.set_current_vm(self.current_vm)
         self.update_status_display()
         self.update_info_display()
         self.load_metrics()
@@ -1008,6 +952,7 @@ class MainWindow(QMainWindow):
                 self.virtual_machines[i] = vm
                 if self.current_vm and self.current_vm.id == vm.id:
                     self.current_vm = vm
+                    self.firewall_controller.set_current_vm(self.current_vm)
                 break
 
         self.update_status_display()
@@ -1249,275 +1194,6 @@ class MainWindow(QMainWindow):
             f"{action_name.capitalize()} action has been initiated.\nAction ID: {action.id}",
         )
         # Refresh after a short delay
-        QTimer.singleShot(2000, self.refresh_data)
-
-    # Firewall methods
-    def load_firewalls(self):
-        """Load all firewalls."""
-        if not self.api_client:
-            return
-
-        worker = APIWorker(self.api_client.get_firewalls)
-        worker.finished.connect(self.on_firewalls_loaded)
-        worker.error.connect(lambda e: logger.warning(f"Firewalls error: {e}"))
-        self.worker_pool.submit(worker)
-
-    def on_firewalls_loaded(self, firewalls: list[Firewall]):
-        """Handle firewalls loaded."""
-        self.firewalls = firewalls
-        self.firewall_combo.blockSignals(True)
-        self.firewall_combo.clear()
-
-        self.firewall_combo.addItem("-- Select Firewall --", None)
-        for fw in firewalls:
-            status = "[Synced]" if fw.is_synced else "[Not Synced]"
-            self.firewall_combo.addItem(f"{fw.name} {status} (ID: {fw.id})", fw.id)
-
-        self.firewall_combo.blockSignals(False)
-
-        # Select active firewall if any
-        if self.current_vm and self.current_vm.firewall_group_id:
-            for i in range(self.firewall_combo.count()):
-                if self.firewall_combo.itemData(i) == self.current_vm.firewall_group_id:
-                    self.firewall_combo.setCurrentIndex(i)
-                    break
-
-    def on_firewall_changed(self, index: int):
-        """Handle firewall selection change."""
-        fw_id = self.firewall_combo.itemData(index)
-        if fw_id is None:
-            self.current_firewall = None
-            self.rules_table.setRowCount(0)
-            return
-
-        # Find firewall in list
-        for fw in self.firewalls:
-            if fw.id == fw_id:
-                self.current_firewall = fw
-                self.update_rules_table()
-                break
-
-    def update_rules_table(self):
-        """Update the firewall rules table."""
-        if not self.current_firewall:
-            self.rules_table.setRowCount(0)
-            return
-
-        rules = self.current_firewall.rules
-        self.rules_table.setRowCount(len(rules))
-
-        for i, rule in enumerate(rules):
-            self.rules_table.setItem(i, 0, QTableWidgetItem(str(rule.id)))
-            self.rules_table.setItem(i, 1, QTableWidgetItem(rule.protocol.upper()))
-            self.rules_table.setItem(i, 2, QTableWidgetItem(rule.port))
-
-            source_text = rule.source
-            if rule.source_detail:
-                source_text += f" ({rule.source_detail})"
-            self.rules_table.setItem(i, 3, QTableWidgetItem(source_text))
-
-            # Action buttons
-            actions_widget = QWidget()
-            actions_widget.setStyleSheet("background: transparent;")
-            actions_layout = QHBoxLayout(actions_widget)
-            actions_layout.setContentsMargins(2, 2, 2, 2)
-            actions_layout.setSpacing(4)
-
-            edit_btn = QPushButton("Edit")
-            edit_btn.setFixedSize(70, 30)
-            edit_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #0f3460;
-                    border: none;
-                    border-radius: 4px;
-                    color: #00d4ff;
-                    font-size: 11px;
-                    font-weight: bold;
-                }
-                QPushButton:hover {
-                    background-color: #00d4ff;
-                    color: #1a1a2e;
-                }
-            """)
-            edit_btn.clicked.connect(lambda checked, r=rule: self.edit_firewall_rule(r))
-            actions_layout.addWidget(edit_btn)
-
-            delete_btn = QPushButton("Delete")
-            delete_btn.setFixedSize(70, 30)
-            delete_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #e94560;
-                    border: none;
-                    border-radius: 4px;
-                    color: white;
-                    font-size: 11px;
-                    font-weight: bold;
-                }
-                QPushButton:hover {
-                    background-color: #ff6b6b;
-                }
-            """)
-            delete_btn.clicked.connect(lambda checked, r=rule: self.delete_firewall_rule(r))
-            actions_layout.addWidget(delete_btn)
-
-            self.rules_table.setCellWidget(i, 4, actions_widget)
-            self.rules_table.setRowHeight(i, 40)
-
-    def add_firewall_rule(self):
-        """Add a new firewall rule."""
-        if not self.api_client or not self.current_firewall:
-            QMessageBox.warning(self, "Error", "Please select a firewall first.")
-            return
-
-        dialog = FirewallRuleDialog(self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            rule_data = dialog.get_rule_data()
-
-            worker = APIWorker(
-                self.api_client.create_firewall_rule,
-                self.current_firewall.id,
-                rule_data["protocol"],
-                rule_data["port"],
-                rule_data["source"],
-                rule_data["source_detail"],
-            )
-            worker.finished.connect(lambda r: self.on_rule_created(r))
-            worker.error.connect(self.on_api_error)
-            self.worker_pool.submit(worker)
-
-    def on_rule_created(self, rule: FirewallRule):
-        """Handle rule created."""
-        QMessageBox.information(self, "Success", f"Firewall rule created (ID: {rule.id})")
-        self.load_firewalls()
-
-    def edit_firewall_rule(self, rule: FirewallRule):
-        """Edit a firewall rule."""
-        if not self.api_client or not self.current_firewall:
-            return
-
-        dialog = FirewallRuleDialog(self, rule)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            rule_data = dialog.get_rule_data()
-
-            worker = APIWorker(
-                self.api_client.update_firewall_rule,
-                self.current_firewall.id,
-                rule.id,
-                rule_data["protocol"],
-                rule_data["port"],
-                rule_data["source"],
-                rule_data["source_detail"],
-            )
-            worker.finished.connect(lambda r: self.on_rule_updated(r))
-            worker.error.connect(self.on_api_error)
-            self.worker_pool.submit(worker)
-
-    def on_rule_updated(self, rule: FirewallRule):
-        """Handle rule updated."""
-        QMessageBox.information(self, "Success", "Firewall rule updated")
-        self.load_firewalls()
-
-    def delete_firewall_rule(self, rule: FirewallRule):
-        """Delete a firewall rule."""
-        if not self.api_client or not self.current_firewall:
-            return
-
-        reply = QMessageBox.question(
-            self,
-            CONFIRM_DELETE_TITLE,
-            f"Are you sure you want to delete this rule?\n"
-            f"Protocol: {rule.protocol}, Port: {rule.port}",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-
-        if reply == QMessageBox.StandardButton.Yes:
-            worker = APIWorker(
-                self.api_client.delete_firewall_rule, self.current_firewall.id, rule.id
-            )
-            worker.finished.connect(lambda _: self.on_rule_deleted())
-            worker.error.connect(self.on_api_error)
-            self.worker_pool.submit(worker)
-
-    def on_rule_deleted(self):
-        """Handle rule deleted."""
-        QMessageBox.information(self, "Success", "Firewall rule deleted")
-        self.load_firewalls()
-
-    def activate_firewall(self):
-        """Activate firewall for current VM."""
-        if not self.api_client or not self.current_firewall or not self.current_vm:
-            QMessageBox.warning(self, "Error", FIREWALL_SERVER_ERROR_MSG)
-            return
-
-        reply = QMessageBox.question(
-            self,
-            "Confirm Activation",
-            f"Activate firewall '{self.current_firewall.name}' for {self.current_vm.hostname}?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-
-        if reply == QMessageBox.StandardButton.Yes:
-            worker = APIWorker(
-                self.api_client.activate_firewall, self.current_firewall.id, self.current_vm.id
-            )
-            worker.finished.connect(lambda a: self.on_firewall_action_complete("Activation", a))
-            worker.error.connect(self.on_api_error)
-            self.worker_pool.submit(worker)
-
-    def deactivate_firewall(self):
-        """Deactivate firewall for current VM."""
-        if not self.api_client or not self.current_firewall or not self.current_vm:
-            QMessageBox.warning(self, "Error", FIREWALL_SERVER_ERROR_MSG)
-            return
-
-        reply = QMessageBox.question(
-            self,
-            "Confirm Deactivation",
-            f"Deactivate firewall for {self.current_vm.hostname}?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-
-        if reply == QMessageBox.StandardButton.Yes:
-            worker = APIWorker(
-                self.api_client.deactivate_firewall, self.current_firewall.id, self.current_vm.id
-            )
-            worker.finished.connect(lambda a: self.on_firewall_action_complete("Deactivation", a))
-            worker.error.connect(self.on_api_error)
-            self.worker_pool.submit(worker)
-
-    def sync_firewall(self):
-        """Sync firewall rules to current VM."""
-        if not self.api_client or not self.current_firewall or not self.current_vm:
-            QMessageBox.warning(self, "Error", FIREWALL_SERVER_ERROR_MSG)
-            return
-
-        logger.info(
-            f"Initiating firewall sync: firewall={self.current_firewall.id}, vm={self.current_vm.id}"
-        )
-        worker = APIWorker(
-            self.api_client.sync_firewall, self.current_firewall.id, self.current_vm.id
-        )
-        worker.finished.connect(lambda a: self.on_sync_firewall_complete(a))
-        worker.error.connect(self.on_sync_firewall_error)
-        self.worker_pool.submit(worker)
-
-    def on_sync_firewall_complete(self, action: Action):
-        """Handle sync firewall complete."""
-        logger.info(f"Sync firewall completed: action_id={action.id}, state={action.state}")
-        self.on_firewall_action_complete("Sync", action)
-
-    def on_sync_firewall_error(self, error: Exception):
-        """Handle sync firewall error."""
-        logger.error(f"Sync firewall error: {error}")
-        self.on_api_error(error)
-
-    def on_firewall_action_complete(self, action_name: str, action: Action):
-        """Handle firewall action complete."""
-        QMessageBox.information(
-            self,
-            "Action Started",
-            f"Firewall {action_name.lower()} has been initiated.\nAction ID: {action.id}",
-        )
         QTimer.singleShot(2000, self.refresh_data)
 
     # SSH Keys methods
