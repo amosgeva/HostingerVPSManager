@@ -283,4 +283,3 @@ COLOR_WARNING = "color: #ffa502;"
 COLOR_DANGER = "color: #ff4757;"
 COLOR_CYAN = "color: #00d4ff;"
 FONT_SEGOE_UI = "Segoe UI"
-
