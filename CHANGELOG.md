@@ -11,6 +11,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `src/controllers/firewall_controller.py` — first MVVM-lite controller
+  (the **template** for the rest in step 6). `QObject` with
+  `pyqtSignal`s on every state-change boundary; takes `api_client`
+  and `worker_pool` via DI; no Qt widgets imported. Exposes
+  `load_firewalls`, `select_firewall`, `create_rule`, `update_rule`,
+  `delete_rule`, `activate`, `deactivate`, `sync`, plus
+  `set_api_client` / `set_current_vm` for cross-cutting state.
+- `src/ui/tabs/firewall_tab.py` — passive `QWidget` paired with the
+  controller. Connects to controller signals in `__init__`, routes
+  user actions back via controller methods. Owns no business state.
+- `tests/conftest.py` — shared `fake_api_client` and `worker_pool`
+  fixtures for headless controller testing.
+- `tests/unit/controllers/test_firewall_controller.py` — 13 headless
+  tests via `qtbot.waitSignal` and `MagicMock(spec=HostingerAPIClient)`.
+  Covers load / select / create / update / delete / activate / sync /
+  account-switch state reset.
+
+### Changed
+
+- `MainWindow` no longer carries firewall state or methods (~270
+  lines deleted): `firewalls`, `current_firewall`, `load_firewalls`,
+  `on_firewalls_loaded`, `on_firewall_changed`, `update_rules_table`,
+  `add_firewall_rule`, `on_rule_created`, `edit_firewall_rule`,
+  `on_rule_updated`, `delete_firewall_rule`, `on_rule_deleted`,
+  `activate_firewall`, `deactivate_firewall`, `sync_firewall`,
+  `on_sync_firewall_complete`, `on_sync_firewall_error`,
+  `on_firewall_action_complete` are gone. The Firewall tab is now a
+  one-line `FirewallTab(controller)` instantiation.
+- `MainWindow._set_api_client(api_client)` helper centralises
+  account-switch wiring; controllers learn about the new client via
+  `firewall_controller.set_api_client(...)`.
+
 - `src/workers/` — new package containing `APIWorker` (extracted from
   `main_window.py`) and a new `WorkerPool` lifetime manager. The pool
   retires workers automatically when `finished` / `error` fires
