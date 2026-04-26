@@ -70,8 +70,8 @@ if IS_MAC:
         bundle_identifier='com.geva.hostinger-vps-manager',
         info_plist={
             'CFBundleDisplayName': 'Hostinger VPS Manager',
-            'CFBundleShortVersionString': '1.3.0',
-            'CFBundleVersion': '1.3.0',
+            'CFBundleShortVersionString': '1.3.1',
+            'CFBundleVersion': '1.3.1',
             'NSHighResolutionCapable': True,
             # Keep the app Gatekeeper-tolerant when unsigned: users will
             # still need right-click -> Open the first time.

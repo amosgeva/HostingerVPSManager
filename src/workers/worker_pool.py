@@ -70,8 +70,22 @@ class WorkerPool:
 
         Idempotent: if both `finished` and `error` somehow fire (they
         shouldn't), the second call is a no-op.
+
+        We `wait()` for the OS thread to fully exit before scheduling
+        the C++ delete. APIWorker emits its `finished` / `error` signal
+        from *inside* `run()`, so when this slot fires the worker thread
+        may still be in QThread teardown. Without the wait, the
+        deleteLater event can race with that teardown — Qt then aborts
+        with `QThread: Destroyed while thread is still running` (SIGABRT).
+        Surfaced on Python 3.12 / Qt 6.11 in CI; would also bite
+        production under tight retire/submit cycles.
+
+        `wait()` here is bounded by the thread's teardown time only
+        (microseconds in practice) since `run()` has already returned.
         """
         self._active.discard(worker)
+        if worker.isRunning():
+            worker.wait()
         worker.deleteLater()
 
     def shutdown(self, timeout_ms: int = DEFAULT_SHUTDOWN_TIMEOUT_MS) -> None:
